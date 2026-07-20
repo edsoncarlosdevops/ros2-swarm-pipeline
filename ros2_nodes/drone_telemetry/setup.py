@@ -20,9 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'drone_telemetry_pub = drone_telemetry.drone_telemetry_pub:main',
-            'drone_telemetry_sub = drone_telemetry.drone_telemetry_sub:main',
-            'waypoint_planner = drone_telemetry.waypoint_planner:main',
+            'telemetry_pub = drone_telemetry.telemetry.publisher:main',
+            'telemetry_sub = drone_telemetry.telemetry.subscriber:main',
+            'waypoint_planner = drone_telemetry.navigation.waypoint_planner:main',
         ],
     },
 )

@@ -19,7 +19,7 @@ services:
       context: .
       dockerfile: cicd/Dockerfile
     container_name: drone_telemetry_pub
-    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/drone_telemetry_pub.py
+    command: python3 -m drone_telemetry.telemetry.publisher
     networks:
       - ros2_swarm
     environment:
@@ -31,7 +31,7 @@ services:
       context: .
       dockerfile: cicd/Dockerfile
     container_name: drone_telemetry_sub
-    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/drone_telemetry_sub.py
+    command: python3 -m drone_telemetry.telemetry.subscriber
     depends_on:
       - telemetry_pub  # So inicia quando o publisher estiver rodando
     volumes:
@@ -47,7 +47,7 @@ services:
       context: .
       dockerfile: cicd/Dockerfile
     container_name: waypoint_planner
-    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/waypoint_planner.py
+    command: python3 -m drone_telemetry.navigation.waypoint_planner
     depends_on:
       - telemetry_pub  # Tambem depende do publisher
     networks:
