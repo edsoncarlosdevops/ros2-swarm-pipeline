@@ -26,7 +26,7 @@ import math
 class WaypointPlanner(Node):
     """
     Planejador de waypoints.
-    
+
     Quando recebe odometry do drone, calcula o comando de velocidade
     para seguir uma trajetoria em forma de L (waypoints fixos).
     """
@@ -47,8 +47,8 @@ class WaypointPlanner(Node):
 
         # === Publishers ===
         self.cmd_vel_pub = self.create_publisher(
-            Twist,           # Tipo: linear.x, angular.z
-            '/drone/cmd_vel', # Topico de comando
+            Twist,
+            '/drone/cmd_vel',
             10
         )
 
