@@ -231,14 +231,13 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          # Testa que o package foi instalado corretamente
-          import drone_telemetry
-          import importlib
-          # Verifica que o entry_point existe
-          import pkg_resources
-          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
-          print(f'Entry points: {eps}')
-          assert 'drone_telemetry_pub' in eps, 'drone_telemetry_pub nao registrado!'
+          # Testa que o package foi instalado e tem o entry point
+          import importlib.metadata as md
+          dist = md.distribution('drone-telemetry')
+          eps = dist.entry_points
+          print(f'Entry points: {[ep.name for ep in eps]}')
+          names = [ep.name for ep in eps]
+          assert 'drone_telemetry_pub' in names, 'drone_telemetry_pub nao registrado!'
           print('✅ telemetry_pub: package OK')
           "
 
@@ -292,9 +291,10 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          import pkg_resources
-          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
-          assert 'drone_telemetry_sub' in eps, 'drone_telemetry_sub nao registrado!'
+          import importlib.metadata as md
+          dist = md.distribution('drone-telemetry')
+          names = [ep.name for ep in dist.entry_points]
+          assert 'drone_telemetry_sub' in names, 'drone_telemetry_sub nao registrado!'
           print('✅ telemetry_sub: package OK')
           "
 
@@ -348,9 +348,10 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          import pkg_resources
-          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
-          assert 'waypoint_planner' in eps, 'waypoint_planner nao registrado!'
+          import importlib.metadata as md
+          dist = md.distribution('drone-telemetry')
+          names = [ep.name for ep in dist.entry_points]
+          assert 'waypoint_planner' in names, 'waypoint_planner nao registrado!'
           print('✅ waypoint_planner: package OK')
           "
 
