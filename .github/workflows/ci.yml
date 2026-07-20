@@ -1,4 +1,4 @@
-name: ROS 2 Drone Pipeline
+nname: ROS 2 Drone Pipeline
 
 on:
   push:
@@ -210,6 +210,13 @@ jobs:
             ${{ runner.os }}-buildx-pub-${{ matrix.arch }}
             ${{ runner.os }}-buildx-pub-
 
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build telemetry_pub
         uses: docker/build-push-action@v6
         with:
@@ -220,7 +227,16 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache-pub
           cache-to: type=local,dest=/tmp/.buildx-cache-pub-new,mode=max
           load: true
-          tags: ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }}
+
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }}
+
+      - name: Push telemetry_pub (so em main)
+        if: github.ref == 'refs/heads/master'
+        run: |
+          # Tagueia como latest para a arquitetura
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
+                     ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-latest
 
       - name: Move cache
         run: |

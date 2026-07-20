@@ -63,7 +63,7 @@ COPY --from=builder /ros2_ws/drone_telemetry /ros2_ws/drone_telemetry
 COPY etl_pipeline/ /ros2_ws/etl_pipeline/
 
 # Cria usuario nao-root para seguranca
-RUN useradd -m -u 1000 ros && \
+RUN useradd -m -u 1001 ros && \
     chown -R ros:ros /ros2_ws /entrypoint.sh
 
 USER ros
