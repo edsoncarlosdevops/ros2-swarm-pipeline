@@ -1,4 +1,4 @@
-nname: ROS 2 Drone Pipeline
+name: ROS 2 Drone Pipeline
 
 on:
   push:
