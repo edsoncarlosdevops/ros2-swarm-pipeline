@@ -232,7 +232,7 @@ jobs:
           docker run --rm ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
           # Verifica que o package drone_telemetry foi instalado
-          import importlib
+          import importlib.util
           spec = importlib.util.find_spec('drone_telemetry')
           assert spec is not None, 'drone_telemetry nao encontrado!'
           print(f'✅ telemetry_pub: package OK ({spec.origin})')
@@ -288,7 +288,7 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          import importlib
+          import importlib.util
           spec = importlib.util.find_spec('drone_telemetry')
           assert spec is not None, 'drone_telemetry nao encontrado!'
           print(f'✅ telemetry_sub: package OK ({spec.origin})')
@@ -344,7 +344,7 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          import importlib
+          import importlib.util
           spec = importlib.util.find_spec('drone_telemetry')
           assert spec is not None, 'drone_telemetry nao encontrado!'
           print(f'✅ waypoint_planner: package OK ({spec.origin})')
