@@ -25,12 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencias Python do ETL
-RUN pip3 install --no-cache-dir \
+RUN PIP_REQUIRE_VIRTUALENV=false pip3 install --no-cache-dir \
     duckdb>=1.0.0 \
     pandas>=2.0.0 \
     pyarrow>=14.0.0 \
     mcap>=1.4.0 \
-    mcap-ros2-support>=0.6.0
+    mcap-ros2-support>=0.5.0
 
 COPY --from=builder /ros2_ws/drone_telemetry /ros2_ws/drone_telemetry
 COPY cicd/entrypoint.sh /entrypoint.sh
