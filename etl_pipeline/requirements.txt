@@ -1,0 +1,4 @@
+mcap
+pyarrow
+duckdb
+pandas

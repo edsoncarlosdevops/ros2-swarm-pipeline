@@ -1,0 +1,65 @@
+name: ROS 2 Drone Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: \${{ github.repository }}
+
+jobs:
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install linters
+        run: pip install flake8
+      - name: Lint ROS 2 nodes
+        run: flake8 ros2_nodes/ --max-line-length=100 --statistics
+
+  build:
+    name: Build
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/\${{ matrix.arch }}
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: \${{ runner.os }}-buildx-\${{ matrix.arch }}-\${{ github.sha }}
+          restore-keys: |
+            \${{ runner.os }}-buildx-\${{ matrix.arch }}
+            \${{ runner.os }}-buildx-
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cicd/Dockerfile
+          platforms: linux/\${{ matrix.arch }}
+          push: false
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+          load: true
+          tags: \${{ env.IMAGE_NAME }}:\${{ matrix.arch }}-\${{ github.sha }}
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache

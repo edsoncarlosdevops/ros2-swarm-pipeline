@@ -1,0 +1,49 @@
+stages:
+  - lint
+  - build
+  - test
+  - package
+  - deploy
+
+.base_ros2: &base_ros2
+  image: ros:humble-ros-base-jammy
+  before_script:
+    - apt-get update && apt-get install -y python3-pip python3-colcon-common-extensions ccache
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - .ccache/
+
+lint:
+  stage: lint
+  image: python:3.10-slim
+  script:
+    - pip install flake8
+    - flake8 ros2_nodes/ --max-line-length=100
+
+build:amd64:
+  stage: build
+  tags: [amd64, cpu]
+  <<: *base_ros2
+  script:
+    - colcon build --symlink-install --parallel-workers \$(nproc)
+  artifacts:
+    paths:
+      - install/
+
+build:arm64:
+  stage: build
+  tags: [arm64, jetson]
+  <<: *base_ros2
+  script:
+    - colcon build --symlink-install --parallel-workers \$(nproc)
+  artifacts:
+    paths:
+      - install/
+
+package:
+  stage: package
+  image: gcr.io/kaniko-project/executor:v1.14.0
+  script:
+    - /kaniko/executor --context \${CI_PROJECT_DIR} --dockerfile \${CI_PROJECT_DIR}/cicd/Dockerfile
+      --destination \${CI_REGISTRY_IMAGE}:\${CI_COMMIT_SHORT_SHA} --cache=true
