@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: \${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository }}
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -25,16 +25,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: \${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache pip (nível 1)
         uses: actions/cache@v4
         id: pip-cache
         with:
           path: ~/.cache/pip
-          key: \${{ runner.os }}-pip-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('etl_pipeline/requirements.txt') }}
           restore-keys: |
-            \${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-
 
       - name: Install linters
         run: pip install flake8
@@ -56,7 +56,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: \${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
       # --- Cache Nível 1: pip ---
       - name: Cache pip dependencies
@@ -64,10 +64,10 @@ jobs:
         id: pip-cache
         with:
           path: ~/.cache/pip
-          key: \${{ runner.os }}-pip-etl-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          key: ${{ runner.os }}-pip-etl-${{ hashFiles('etl_pipeline/requirements.txt') }}
           restore-keys: |
-            \${{ runner.os }}-pip-etl-
-            \${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-etl-
+            ${{ runner.os }}-pip-
 
       - name: Install Python dependencies
         run: |
@@ -82,9 +82,9 @@ jobs:
           path: |
             data/raw/
             data/processed/
-          key: \${{ runner.os }}-data-\${{ github.sha }}
+          key: ${{ runner.os }}-data-${{ github.sha }}
           restore-keys: |
-            \${{ runner.os }}-data-
+            ${{ runner.os }}-data-
 
       - name: Generate synthetic MCAP (CDR ROS2 real)
         run: python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=500
@@ -123,17 +123,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: \${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
       # Restaura cache pip
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: \${{ runner.os }}-pip-etl-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          key: ${{ runner.os }}-pip-etl-${{ hashFiles('etl_pipeline/requirements.txt') }}
           restore-keys: |
-            \${{ runner.os }}-pip-etl-
-            \${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-etl-
+            ${{ runner.os }}-pip-
 
       # Restaura cache de dados
       - name: Restore data cache
@@ -142,9 +142,9 @@ jobs:
           path: |
             data/raw/
             data/processed/
-          key: \${{ runner.os }}-data-\${{ github.sha }}
+          key: ${{ runner.os }}-data-${{ github.sha }}
           restore-keys: |
-            \${{ runner.os }}-data-
+            ${{ runner.os }}-data-
 
       - name: Install dependencies
         run: |
@@ -199,29 +199,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          platforms: linux/\${{ matrix.arch }}
+          platforms: linux/${{ matrix.arch }}
 
       # --- Cache Nível 3: camadas Docker ---
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: \${{ runner.os }}-buildx-\${{ matrix.arch }}-\${{ github.sha }}
+          key: ${{ runner.os }}-buildx-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: |
-            \${{ runner.os }}-buildx-\${{ matrix.arch }}
-            \${{ runner.os }}-buildx-
+            ${{ runner.os }}-buildx-${{ matrix.arch }}
+            ${{ runner.os }}-buildx-
 
       - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: cicd/Dockerfile
-          platforms: linux/\${{ matrix.arch }}
+          platforms: linux/${{ matrix.arch }}
           push: false
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           load: true
-          tags: \${{ env.IMAGE_NAME }}:\${{ matrix.arch }}-\${{ github.sha }}
+          tags: ${{ env.IMAGE_NAME }}:${{ matrix.arch }}-${{ github.sha }}
 
       - name: Move cache (evita crescimento infinito)
         run: |
@@ -230,7 +230,7 @@ jobs:
 
       - name: Test Docker image
         run: |
-          docker run --rm \${{ env.IMAGE_NAME }}:\${{ matrix.arch }}-\${{ github.sha }} \
+          docker run --rm ${{ env.IMAGE_NAME }}:${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
           import duckdb
           print(f'DuckDB: {duckdb.__version__}')
