@@ -2,7 +2,7 @@ name: ROS 2 Drone Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master, main, develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
