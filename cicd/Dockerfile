@@ -7,8 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     && rm -rf /var/lib/apt/lists/*
 
-COPY cicd/requirements.txt /tmp/
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 
 WORKDIR /ros2_ws
 COPY ros2_nodes/ src/ros2_nodes/
