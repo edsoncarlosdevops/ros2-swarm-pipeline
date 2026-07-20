@@ -9,7 +9,6 @@ Uso:
   docker run --rm --network ros2-net ros2-drone-sim python3 /ros2_ws/bag_recorder.py
 """
 
-import os
 import sys
 import signal
 from pathlib import Path
@@ -26,11 +25,11 @@ class BagRecorder(Node):
 
     def __init__(self):
         super().__init__("bag_recorder")
-        
+
         # Configuração do bag
         self.bag_path = Path("/ros2_ws/data/mcap/flight_mission")
         self.bag_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Configura o writer MCAP
         storage_options = StorageOptions(
             uri=str(self.bag_path),
@@ -41,10 +40,10 @@ class BagRecorder(Node):
             "/drone/odometry",
             "/drone/battery"
         ]
-        
+
         self.writer = SequentialWriter()
         self.writer.open(storage_options, record_options)
-        
+
         # Inscreve nos topics
         self.create_subscription(
             Odometry, "/drone/odometry", self.odom_callback, 10
@@ -52,11 +51,11 @@ class BagRecorder(Node):
         self.create_subscription(
             BatteryState, "/drone/battery", self.battery_callback, 10
         )
-        
+
         self.get_logger().info(f"Gravando MCAP em: {self.bag_path}")
         self.get_logger().info("Topics: /drone/odometry, /drone/battery")
         self.get_logger().info("Pressione Ctrl+C para parar e gerar Parquet...")
-        
+
         self.msg_count = 0
 
     def odom_callback(self, msg):
@@ -73,7 +72,7 @@ class BagRecorder(Node):
         self.get_logger().info("Finalizando gravacao...")
         del self.writer  # Fecha o writer
         self.get_logger().info(f"MCAP salvo em: {self.bag_path}")
-        
+
         # Chama o pipeline ETL
         self.get_logger().info("Iniciando conversao MCAP -> Parquet -> DuckDB...")
         sys.path.insert(0, "/ros2_ws/etl_pipeline")
@@ -84,16 +83,16 @@ class BagRecorder(Node):
 def main(args=None):
     rclpy.init(args=args)
     recorder = BagRecorder()
-    
+
     def shutdown(sig, frame):
         recorder.stop_and_convert()
         recorder.destroy_node()
         rclpy.shutdown()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
-    
+
     rclpy.spin(recorder)
 
 
