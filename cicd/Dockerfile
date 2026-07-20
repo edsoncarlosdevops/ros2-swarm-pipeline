@@ -35,7 +35,6 @@ RUN pip3 install --no-cache-dir \
 COPY --from=builder /ros2_ws/drone_telemetry /ros2_ws/drone_telemetry
 COPY cicd/entrypoint.sh /entrypoint.sh
 COPY etl_pipeline/ /ros2_ws/etl_pipeline/
-COPY data/ /ros2_ws/data/
 
 RUN chmod +x /entrypoint.sh
 
