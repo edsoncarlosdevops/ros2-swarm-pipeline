@@ -231,8 +231,15 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          from drone_telemetry.drone_telemetry_pub import DroneTelemetryPublisher
-          print('✅ telemetry_pub: OK (import OK)')
+          # Testa que o package foi instalado corretamente
+          import drone_telemetry
+          import importlib
+          # Verifica que o entry_point existe
+          import pkg_resources
+          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
+          print(f'Entry points: {eps}')
+          assert 'drone_telemetry_pub' in eps, 'drone_telemetry_pub nao registrado!'
+          print('✅ telemetry_pub: package OK')
           "
 
   build-node-sub:
@@ -285,8 +292,10 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          from drone_telemetry.drone_telemetry_sub import DroneTelemetrySubscriber
-          print('✅ telemetry_sub: OK (import OK)')
+          import pkg_resources
+          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
+          assert 'drone_telemetry_sub' in eps, 'drone_telemetry_sub nao registrado!'
+          print('✅ telemetry_sub: package OK')
           "
 
   build-node-nav:
@@ -339,8 +348,10 @@ jobs:
         run: |
           docker run --rm ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          from drone_telemetry.waypoint_planner import WaypointPlanner
-          print('✅ waypoint_planner: OK (import OK)')
+          import pkg_resources
+          eps = [ep.name for ep in pkg_resources.iter_entry_points('console_scripts')]
+          assert 'waypoint_planner' in eps, 'waypoint_planner nao registrado!'
+          print('✅ waypoint_planner: package OK')
           "
 
   # ==========================================================================
