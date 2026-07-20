@@ -10,36 +10,198 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: \${{ github.repository }}
+  PYTHON_VERSION: '3.12'
 
 jobs:
+  # ==========================================================================
+  # Job 1: Lint - Code Quality
+  # ==========================================================================
   lint:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: \${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip (nível 1)
+        uses: actions/cache@v4
+        id: pip-cache
+        with:
+          path: ~/.cache/pip
+          key: \${{ runner.os }}-pip-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          restore-keys: |
+            \${{ runner.os }}-pip-
+
       - name: Install linters
         run: pip install flake8
+
       - name: Lint ROS 2 nodes
         run: flake8 ros2_nodes/ --max-line-length=100 --statistics
 
-  build:
-    name: Build
-    needs: lint
+  # ==========================================================================
+  # Job 2: ETL Pipeline - MCAP → Parquet
+  # ==========================================================================
+  etl:
+    name: ETL Pipeline
     runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: \${{ env.PYTHON_VERSION }}
+
+      # --- Cache Nível 1: pip ---
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        id: pip-cache
+        with:
+          path: ~/.cache/pip
+          key: \${{ runner.os }}-pip-etl-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          restore-keys: |
+            \${{ runner.os }}-pip-etl-
+            \${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r etl_pipeline/requirements.txt
+
+      # --- Cache Nível 2: dados MCAP/Parquet entre runs ---
+      - name: Cache data artifacts
+        uses: actions/cache@v4
+        id: data-cache
+        with:
+          path: |
+            data/raw/
+            data/processed/
+          key: \${{ runner.os }}-data-\${{ github.sha }}
+          restore-keys: |
+            \${{ runner.os }}-data-
+
+      - name: Generate synthetic MCAP (CDR ROS2 real)
+        run: python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=500
+
+      - name: Run full ETL pipeline
+        run: python etl_pipeline/mcap_to_parquet.py
+
+      - name: Validate Parquet output
+        run: |
+          python -c "
+          import pandas as pd, os
+          parquet_path = 'data/processed/flight_data.parquet'
+          assert os.path.exists(parquet_path), f'{parquet_path} nao encontrado!'
+          df = pd.read_parquet(parquet_path)
+          assert len(df) > 0, 'Parquet vazio!'
+          assert all(c in df.columns for c in ['x', 'y', 'z']), 'Colunas ausentes!'
+          print(f'\\n=== VALIDACAO ===')
+          print(f'Registros: {len(df)}')
+          print(f'Colunas: {list(df.columns)}')
+          print(f'Distancia total: {df[\"distance_delta\"].sum():.1f} m')
+          print(f'Velocidade media: {df[\"speed_ms\"].mean():.2f} m/s')
+          print(f'\\n✅ Parquet validado!')
+          "
+
+  # ==========================================================================
+  # Job 3: Analytics - DuckDB SQL
+  # ==========================================================================
+  analyze:
+    name: DuckDB Analytics
+    runs-on: ubuntu-latest
+    needs: etl
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: \${{ env.PYTHON_VERSION }}
+
+      # Restaura cache pip
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: \${{ runner.os }}-pip-etl-\${{ hashFiles('etl_pipeline/requirements.txt') }}
+          restore-keys: |
+            \${{ runner.os }}-pip-etl-
+            \${{ runner.os }}-pip-
+
+      # Restaura cache de dados
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw/
+            data/processed/
+          key: \${{ runner.os }}-data-\${{ github.sha }}
+          restore-keys: |
+            \${{ runner.os }}-data-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r etl_pipeline/requirements.txt
+
+      - name: Run all DuckDB queries
+        run: python etl_pipeline/analyze_flight.py
+
+      - name: Validate analytics
+        run: |
+          python -c "
+          import duckdb
+          con = duckdb.connect()
+          df = con.execute('''
+              SELECT COUNT(*) as n,
+                     ROUND(SUM(distance_delta), 1) as total_dist,
+                     ROUND(AVG(speed_ms), 2) as avg_speed,
+                     ROUND(AVG(z), 1) as avg_alt
+              FROM read_parquet('data/processed/flight_data.parquet')
+          ''').fetchdf()
+          con.close()
+          print(f'\\n=== RESUMO ===')
+          print(f'Amostras: {df[\"n\"].values[0]}')
+          print(f'Distancia: {df[\"total_dist\"].values[0]} m')
+          print(f'Speed avg: {df[\"avg_speed\"].values[0]} m/s')
+          print(f'Altitude:  {df[\"avg_alt\"].values[0]} m')
+          assert df['n'].values[0] > 0, 'Zero amostras!'
+          assert df['total_dist'].values[0] > 100, 'Distancia baixa!'
+          assert df['avg_speed'].values[0] > 1.0, 'Velocidade baixa!'
+          print('✅ Analytics validado!')
+          "
+
+  # ==========================================================================
+  # Job 4: Docker Build - Multi-architecture
+  # ==========================================================================
+  build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [lint, etl]
     strategy:
       matrix:
         arch: [amd64, arm64]
       fail-fast: false
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           platforms: linux/\${{ matrix.arch }}
+
+      # --- Cache Nível 3: camadas Docker ---
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
@@ -48,7 +210,8 @@ jobs:
           restore-keys: |
             \${{ runner.os }}-buildx-\${{ matrix.arch }}
             \${{ runner.os }}-buildx-
-      - name: Build image
+
+      - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -56,10 +219,27 @@ jobs:
           platforms: linux/\${{ matrix.arch }}
           push: false
           cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           load: true
           tags: \${{ env.IMAGE_NAME }}:\${{ matrix.arch }}-\${{ github.sha }}
-      - name: Move cache
+
+      - name: Move cache (evita crescimento infinito)
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Test Docker image
+        run: |
+          docker run --rm \${{ env.IMAGE_NAME }}:\${{ matrix.arch }}-\${{ github.sha }} \
+            python3 -c "
+          import duckdb
+          print(f'DuckDB: {duckdb.__version__}')
+          try:
+              from mcap.reader import make_reader
+              from mcap_ros2.decoder import DecoderFactory
+              print('MCAP + ROS2: OK')
+          except ImportError as e:
+              print(f'ERRO: {e}')
+              exit(1)
+          print('Container OK!')
+          "

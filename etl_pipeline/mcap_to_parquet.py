@@ -1,197 +1,617 @@
 #!/usr/bin/env python3
 """
-MCAP to Parquet ETL Pipeline
+MCAP to Parquet ETL Pipeline with DuckDB
 
-Demonstrates the exact data pipeline Andrea described:
-  MCAP (ROS 2 native) -> Parquet (columnar storage) -> DuckDB (analytics)
+Pipeline: MCAP (ROS 2 CDR) -> Parquet -> DuckDB Analytics
 
-This simulates what happens after a drone mission:
-  1. Drone collects data in MCAP format during flight
-  2. Drone returns to base, data is extracted
-  3. ETL transforms to Parquet for efficient storage
-  4. DuckDB provides SQL access for analysis
+Gera MCAP com encoding CDR ROS2 real (ros2msg), usando mcap_ros2.writer
+com msgdef completo de nav_msgs/Odometry + todos os sub-tipos.
 """
 
 import json
 import os
 import sys
-import tempfile
+import math
+import time
 from pathlib import Path
+from datetime import datetime, timezone
+
+import duckdb
+import pandas as pd
+
+# --- MCAP imports ---
+MCAP_AVAILABLE = False
+ROS2_AVAILABLE = False
+try:
+    from mcap.reader import make_reader
+    from mcap_ros2.decoder import DecoderFactory
+    import mcap
+    MCAP_AVAILABLE = True
+    ROS2_AVAILABLE = True
+except ImportError:
+    try:
+        from mcap.reader import make_reader
+        MCAP_AVAILABLE = True
+    except ImportError:
+        pass
+
+print(f"  DuckDB:  {duckdb.__version__}")
+print(f"  MCAP:    {'✓' if MCAP_AVAILABLE else '✗ (pip install mcap-ros2-support)'}")
+print(f"  ROS2:    {'✓' if ROS2_AVAILABLE else '✗'}")
 
 
-def extract_data(json_path):
-    """Step 1: EXTRACT - Read raw telemetry data (simulating MCAP)."""
-    print(f"[EXTRACT] Reading data from {json_path}")
-    with open(json_path, "r") as f:
+def extract_mcap(raw_path):
+    """
+    Extrai dados de telemetria de arquivos MCAP.
+    Suporta tanto CDR ROS2 real (ros2msg) quanto JSON encoding.
+    """
+    if not MCAP_AVAILABLE:
+        raise RuntimeError("MCAP not installed. Run: pip install mcap-ros2-support")
+
+    path = Path(raw_path)
+    if not path.exists():
+        raise FileNotFoundError(f"MCAP file not found: {path}")
+
+    print(f"\n[EXTRACT] MCAP: {path}")
+    size = path.stat().st_size
+    print(f"[EXTRACT] Size: {size/1024:.1f} KB")
+
+    records = []
+    topics_found = set()
+    types_found = set()
+
+    with open(path, "rb") as f:
+        # Primeiro, descobre o encoding do schema
+        reader = make_reader(f)
+        schema_sample = None
+        for s, c, m in reader.iter_messages():
+            schema_sample = s
+            break
+        f.seek(0)
+
+        encoding = schema_sample.encoding if schema_sample else "unknown"
+        is_ros2_cdr = (encoding == "ros2msg")
+
+        if is_ros2_cdr and ROS2_AVAILABLE:
+            # Estratégia 1: CDR ROS2 real -> usa DecoderFactory
+            print(f"[EXTRACT] Encoding: ros2msg (CDR ROS2 real)")
+            reader = make_reader(f, decoder_factories=[DecoderFactory()])
+            for schema, channel, message, ros_msg in reader.iter_decoded_messages():
+                topic = channel.topic
+                topics_found.add(topic)
+                msg_type = schema.name
+                types_found.add(msg_type)
+                ts = message.publish_time / 1e9
+
+                entry = {
+                    "timestamp": round(ts, 3),
+                    "topic": topic,
+                    "msg_type": msg_type,
+                }
+                _extract_ros2_fields(ros_msg, msg_type, entry)
+                records.append(entry)
+        else:
+            # Estratégia 2: JSON encoding (MCAP sintético ou outros)
+            print(f"[EXTRACT] Encoding: {encoding} (JSON/text)")
+            reader = make_reader(f)
+            for schema, channel, message in reader.iter_messages():
+                topic = channel.topic
+                topics_found.add(topic)
+                msg_type = schema.name if schema else "unknown"
+                types_found.add(msg_type)
+                ts = message.publish_time / 1e9
+
+                entry = {
+                    "timestamp": round(ts, 3),
+                    "topic": topic,
+                    "msg_type": msg_type,
+                }
+
+                try:
+                    data = json.loads(message.data)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            if k not in entry:
+                                entry[k] = round(v, 3) if isinstance(v, float) else v
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    print(f"  [SKIP] Mensagem binária sem decoder: {topic}")
+                    continue
+
+                records.append(entry)
+
+    print(f"[EXTRACT] Topics: {', '.join(sorted(topics_found))}")
+    print(f"[EXTRACT] Messages: {len(records)}")
+    print(f"[EXTRACT] Types: {', '.join(sorted(types_found))}")
+
+    return records
+
+
+def _extract_ros2_fields(msg, msg_type, entry):
+    """Extrai campos de uma mensagem ROS2 decodificada"""
+    if msg_type == "nav_msgs/Odometry":
+        p = msg.pose.pose.position
+        t = msg.twist.twist.linear
+        entry["x"] = round(p.x, 3)
+        entry["y"] = round(p.y, 3)
+        entry["z"] = round(p.z, 3)
+        entry["vx"] = round(t.x, 3)
+        entry["vy"] = round(t.y, 3)
+        entry["vz"] = round(t.z, 3)
+    elif msg_type in ("geometry_msgs/Pose", "geometry_msgs/PoseStamped"):
+        pose = msg if msg_type == "geometry_msgs/Pose" else msg.pose
+        entry["x"] = round(pose.position.x, 3)
+        entry["y"] = round(pose.position.y, 3)
+        entry["z"] = round(pose.position.z, 3)
+    elif msg_type in ("geometry_msgs/Twist", "geometry_msgs/TwistStamped"):
+        twist = msg if msg_type == "geometry_msgs/Twist" else msg.twist
+        entry["vx"] = round(twist.linear.x, 3)
+        entry["vy"] = round(twist.linear.y, 3)
+        entry["vz"] = round(twist.linear.z, 3)
+    elif msg_type == "geometry_msgs/Point":
+        entry["x"] = round(msg.x, 3)
+        entry["y"] = round(msg.y, 3)
+        entry["z"] = round(msg.z, 3)
+    elif msg_type == "sensor_msgs/NavSatFix":
+        entry["latitude"] = msg.latitude
+        entry["longitude"] = msg.longitude
+        entry["altitude"] = msg.altitude
+    else:
+        # Fallback genérico
+        for field in ["x", "y", "z"]:
+            if hasattr(msg, field):
+                entry[field] = round(getattr(msg, field), 3)
+        if hasattr(msg, "linear") and hasattr(msg.linear, "x"):
+            entry["vx"] = round(msg.linear.x, 3)
+            entry["vy"] = round(msg.linear.y, 3)
+            entry["vz"] = round(msg.linear.z, 3)
+
+
+def extract_json(raw_path):
+    """Fallback: ler arquivo JSON"""
+    path = Path(raw_path)
+    print(f"\n[EXTRACT] JSON: {path}")
+    with open(path) as f:
         data = json.load(f)
-    print(f"[EXTRACT] Loaded {len(data)} telemetry samples")
+    print(f"[EXTRACT] {len(data)} records (JSON fallback)")
     return data
 
 
-def transform_data(data):
-    """Step 2: TRANSFORM - Clean, validate, add features."""
-    print(f"[TRANSFORM] Processing {len(data)} samples")
-    
-    # Filter invalid entries
-    valid = [d for d in data if d.get("x") is not None]
-    
-    # Add derived metrics (like real ETL pipelines do)
-    for i, d in enumerate(valid):
+def transform(data):
+    """Calcula campos derivados: distância, velocidade, aceleração"""
+    print(f"\n[TRANSFORM] {len(data)} records...")
+    data.sort(key=lambda x: x["timestamp"])
+
+    for i, d in enumerate(data):
         if i > 0:
-            prev = valid[i - 1]
-            dx = d["x"] - prev["x"]
-            dy = d["y"] - prev["y"]
-            dz = d["z"] - prev["z"]
+            prev = data[i - 1]
+            dx = d.get("x", 0) - prev.get("x", 0)
+            dy = d.get("y", 0) - prev.get("y", 0)
+            dz = d.get("z", 0) - prev.get("z", 0)
             dt = d["timestamp"] - prev["timestamp"]
-            distance = (dx**2 + dy**2 + dz**2) ** 0.5
-            speed = distance / dt if dt > 0 else 0
-            d["distance_delta"] = round(distance, 3)
-            d["speed_ms"] = round(speed, 3)
+            dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+            d["distance_delta"] = round(dist, 3)
+            d["speed_ms"] = round(dist / dt if dt > 0 else 0, 3)
+
+            if "vx" in d and "vx" in prev:
+                d["ax"] = round((d["vx"] - prev["vx"]) / dt if dt > 0 else 0, 3)
+                d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt if dt > 0 else 0, 3)
+                d["az"] = round((d.get("vz", 0) - prev.get("vz", 0)) / dt if dt > 0 else 0, 3)
         else:
             d["distance_delta"] = 0.0
             d["speed_ms"] = 0.0
-    
-    print(f"[TRANSFORM] Added derived features: distance_delta, speed_ms")
-    return valid
+
+    total_dist = sum(d.get("distance_delta", 0) for d in data)
+    avg_speed = sum(d.get("speed_ms", 0) for d in data) / len(data) if data else 0
+    print(f"[TRANSFORM] Distância total: {total_dist:.1f} m")
+    print(f"[TRANSFORM] Velocidade média: {avg_speed:.2f} m/s")
+    if len(data) > 1:
+        print(f"[TRANSFORM] Duração: {data[-1]['timestamp'] - data[0]['timestamp']:.1f} s")
+
+    return data
 
 
-def load_to_parquet(data, output_path):
-    """Step 3: LOAD - Save as Parquet (simulated with JSON for portability)."""
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # In production, this would use PyArrow to write .parquet files
-    # For this demo, we save as JSON-L (newline-delimited JSON)
-    parquet_sim_path = output_path.with_suffix(".jsonl")
-    with open(parquet_sim_path, "w") as f:
-        for row in data:
-            f.write(json.dumps(row) + "\n")
-    
-    print(f"[LOAD] Saved {len(data)} transformed records to {parquet_sim_path}")
-    
-    # Create a partitioned structure (like real Parquet)
-    partitions = Path(str(output_path).replace(".parquet", ""))
-    partitions.mkdir(parents=True, exist_ok=True)
-    
-    # Simulate partition by altitude range
-    low = [d for d in data if d["z"] < 50]
-    high = [d for d in data if d["z"] >= 50]
-    
-    for name, subset in [("altitude_low", low), ("altitude_high", high)]:
-        pfile = partitions / f"{name}.jsonl"
-        with open(pfile, "w") as f:
-            for row in subset:
-                f.write(json.dumps(row) + "\n")
-        print(f"[LOAD] Partition '{name}': {len(subset)} records")
-    
-    return str(parquet_sim_path)
+def load_parquet(data, parquet_path):
+    """Carrega dados no DuckDB e exporta como Parquet"""
+    parquet_path = Path(parquet_path)
+    base_dir = parquet_path.parent
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n[LOAD] Escrevendo Parquet...")
+
+    con = duckdb.connect()
+    df = pd.DataFrame(data)
+    con.register("flight_df", df)
+    con.execute("CREATE OR REPLACE TABLE flight AS SELECT * FROM flight_df")
+
+    con.execute(f"COPY flight TO '{parquet_path}' (FORMAT PARQUET, CODEC 'ZSTD')")
+    size = parquet_path.stat().st_size
+    print(f"[LOAD] Principal: {parquet_path} ({size/1024:.1f} KB, Zstd)")
+
+    if "z" in df.columns:
+        for name, cond in [
+            ("low_altitude", "z < 10"),
+            ("mid_altitude", "z >= 10 AND z < 50"),
+            ("high_altitude", "z >= 50"),
+        ]:
+            part_dir = base_dir / name
+            part_dir.mkdir(parents=True, exist_ok=True)
+            part_file = part_dir / "data.parquet"
+            con.execute(f"COPY (SELECT * FROM flight WHERE {cond}) TO '{part_file}' (FORMAT PARQUET, CODEC 'ZSTD')")
+            count = con.execute(f"SELECT COUNT(*) FROM flight WHERE {cond}").fetchone()[0]
+            if count > 0:
+                print(f"[LOAD] Partição '{name}': {count} records -> {part_file}")
+
+    meta = {
+        "pipeline": "MCAP -> Parquet -> DuckDB",
+        "records": len(data),
+        "fields": list(data[0].keys()) if data else [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": round(data[-1]["timestamp"] - data[0]["timestamp"], 1)
+        if len(data) > 1 else 0,
+    }
+    meta_path = base_dir / "metadata.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"[LOAD] Metadados: {meta_path}")
+
+    con.close()
+    return str(parquet_path)
 
 
-def analyze_with_duckdb(parquet_path):
-    """Step 4: ANALYZE - Query data with DuckDB (simulated)."""
-    print("\n[ANALYZE] Running DuckDB analytical queries...")
-    
-    # In production:
-    #   import duckdb
-    #   con = duckdb.connect()
-    #   result = con.execute("SELECT AVG(speed_ms) FROM data").fetchone()
-    
-    # Read data for analysis
+def analyze(parquet_path):
+    """Analytics com DuckDB no Parquet"""
+    print(f"\n[ANALYZE] DuckDB SQL em: {parquet_path}")
+    con = duckdb.connect()
+
+    cols = list(pd.read_parquet(str(parquet_path)).columns)
+    has_pos = all(c in cols for c in ["x", "y", "z"])
+    has_vel = all(c in cols for c in ["vx", "vy", "vz"])
+
+    if has_pos:
+        r = con.execute("""
+            SELECT
+                COUNT(*) AS total_samples,
+                ROUND(SUM(distance_delta), 1) AS total_distance_m,
+                ROUND(AVG(speed_ms), 2) AS avg_speed_ms,
+                ROUND(MAX(speed_ms), 2) AS max_speed_ms,
+                ROUND(AVG(z), 1) AS avg_altitude_m,
+                ROUND(MIN(z), 1) AS min_altitude_m,
+                ROUND(MAX(z), 1) AS max_altitude_m
+            FROM read_parquet(?)
+        """, [str(parquet_path)]).fetchdf()
+        print("\n=== FLIGHT SUMMARY ===")
+        print(r.to_string(index=False))
+
+        r = con.execute("""
+            SELECT
+                CASE
+                    WHEN speed_ms < 2 THEN '0-2 m/s'
+                    WHEN speed_ms < 5 THEN '2-5 m/s'
+                    WHEN speed_ms < 10 THEN '5-10 m/s'
+                    WHEN speed_ms < 20 THEN '10-20 m/s'
+                    ELSE '20+ m/s'
+                END AS speed_range,
+                COUNT(*) AS count,
+                ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 1) AS pct
+            FROM read_parquet(?)
+            GROUP BY speed_range ORDER BY speed_range
+        """, [str(parquet_path)]).fetchdf()
+        print("\n=== SPEED DISTRIBUTION ===")
+        print(r.to_string(index=False))
+
+        r = con.execute("""
+            SELECT
+                CASE
+                    WHEN z < 5 THEN '0-5 m'
+                    WHEN z < 10 THEN '5-10 m'
+                    WHEN z < 20 THEN '10-20 m'
+                    WHEN z < 50 THEN '20-50 m'
+                    ELSE '50+ m'
+                END AS altitude_range,
+                COUNT(*) AS count,
+                ROUND(AVG(speed_ms), 2) AS avg_speed,
+                ROUND(AVG(distance_delta), 2) AS avg_step_m
+            FROM read_parquet(?)
+            GROUP BY altitude_range ORDER BY altitude_range
+        """, [str(parquet_path)]).fetchdf()
+        print("\n=== ALTITUDE PROFILE ===")
+        print(r.to_string(index=False))
+
+    if has_vel:
+        r = con.execute("""
+            SELECT
+                ROUND(AVG(ax), 3) AS avg_ax,
+                ROUND(AVG(ay), 3) AS avg_ay,
+                ROUND(AVG(az), 3) AS avg_az,
+                ROUND(MAX(SQRT(ax*ax + ay*ay + az*az)), 3) AS max_accel,
+                ROUND(AVG(SQRT(ax*ax + ay*ay + az*az)), 3) AS avg_accel
+            FROM read_parquet(?) WHERE ax IS NOT NULL
+        """, [str(parquet_path)]).fetchdf()
+        print("\n=== ACCELERATION ===")
+        print(r.to_string(index=False))
+
+    if "topic" in cols:
+        r = con.execute("""
+            SELECT topic, msg_type, COUNT(*) AS count,
+                   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 1) AS pct
+            FROM read_parquet(?)
+            GROUP BY topic, msg_type ORDER BY count DESC
+        """, [str(parquet_path)]).fetchdf()
+        print("\n=== TOPIC DISTRIBUTION ===")
+        print(r.to_string(index=False))
+
+    con.close()
+
+
+def generate_sample_mcap(path, num_records=500):
+    """
+    Gera um arquivo MCAP REAL com encoding CDR ROS2 (ros2msg).
+    Usa nav_msgs/Odometry com msgdef completo de todos os sub-tipos.
+    """
+    from mcap_ros2.writer import Writer
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n[SAMPLE] Gerando MCAP CDR ROS2 real: {path}")
+
+    # --- Msgdef completo com TODOS os tipos aninhados ---
+    # O formato usa '===' como separador e 'MSG: pkg/Type' para cada tipo
+    full_msgdef = """MSG: builtin_interfaces/Time
+int32 sec
+uint32 nanosec
+
+===
+
+MSG: std_msgs/Header
+uint32 seq
+builtin_interfaces/Time stamp
+string frame_id
+
+===
+
+MSG: geometry_msgs/Point
+float64 x
+float64 y
+float64 z
+
+===
+
+MSG: geometry_msgs/Quaternion
+float64 x
+float64 y
+float64 z
+float64 w
+
+===
+
+MSG: geometry_msgs/Vector3
+float64 x
+float64 y
+float64 z
+
+===
+
+MSG: geometry_msgs/Pose
+geometry_msgs/Point position
+geometry_msgs/Quaternion orientation
+
+===
+
+MSG: geometry_msgs/Twist
+geometry_msgs/Vector3 linear
+geometry_msgs/Vector3 angular
+
+===
+
+MSG: geometry_msgs/PoseWithCovariance
+geometry_msgs/Pose pose
+float64[36] covariance
+
+===
+
+MSG: geometry_msgs/TwistWithCovariance
+geometry_msgs/Twist twist
+float64[36] covariance
+
+===
+
+MSG: nav_msgs/Odometry
+std_msgs/Header header
+string child_frame_id
+geometry_msgs/PoseWithCovariance pose
+geometry_msgs/TwistWithCovariance twist"""
+
+    writer = Writer(str(path))
+
+    # Registra o schema Odometry (que internamente registra todos os sub-tipos)
+    odom_schema = writer.register_msgdef("nav_msgs/Odometry", full_msgdef)
+
+    radius, speed = 50.0, 5.0
+    ang = speed / radius
+    start = time.time()
+
+    for i in range(num_records):
+        t = i * 0.1
+        tx = start + t
+        x = radius * math.cos(ang * t)
+        y = radius * math.sin(ang * t)
+        z = 10.0 + 5.0 * math.sin(0.1 * t)
+        vx = -speed * math.sin(ang * t)
+        vy = speed * math.cos(ang * t)
+        vz = 0.5 * math.cos(0.1 * t)
+
+        msg = {
+            "header": {
+                "stamp": {"sec": int(tx), "nanosec": int((tx % 1) * 1e9)},
+                "frame_id": "map",
+            },
+            "child_frame_id": "base_link",
+            "pose": {
+                "pose": {
+                    "position": {"x": round(x, 3), "y": round(y, 3), "z": round(z, 3)},
+                    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+                },
+                "covariance": [0.0] * 36,
+            },
+            "twist": {
+                "twist": {
+                    "linear": {"x": round(vx, 3), "y": round(vy, 3), "z": round(vz, 3)},
+                    "angular": {"x": 0.0, "y": 0.0, "z": ang},
+                },
+                "covariance": [0.0] * 36,
+            },
+        }
+
+        writer.write_message(
+            "/drone/odometry",
+            odom_schema,
+            msg,
+            publish_time=int(tx * 1e9),
+        )
+
+    writer.finish()
+
+    size = path.stat().st_size
+    print(f"[SAMPLE] {num_records} mensagens nav_msgs/Odometry em CDR ROS2")
+    print(f"[SAMPLE] Encoding: ros2msg (CDR binário ROS2)")
+    print(f"[SAMPLE] Tamanho: {size/1024:.1f} KB")
+
+    # Verifica se o decoder consegue ler
+    print(f"\n[SAMPLE] Verificando leitura com DecoderFactory...")
+    from mcap.reader import make_reader
+    from mcap_ros2.decoder import DecoderFactory
+
+    with open(path, "rb") as f:
+        reader = make_reader(f, decoder_factories=[DecoderFactory()])
+        count = 0
+        for schema, channel, message, ros_msg in reader.iter_decoded_messages():
+            if count == 0:
+                print(f"  ✓ {channel.topic} ({schema.name})")
+                print(f"  ✓ Position: {ros_msg.pose.pose.position.x:.1f}, {ros_msg.pose.pose.position.y:.1f}")
+                print(f"  ✓ Encoding: {schema.encoding}")
+            count += 1
+        print(f"  ✓ {count} mensagens decodificadas com sucesso via DecoderFactory!")
+
+    return str(path)
+
+
+def generate_sample_json(path, num_records=500):
+    """Gera JSON de amostra (retrocompatibilidade)"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n[SAMPLE] Gerando JSON: {path}")
+    radius, speed = 50.0, 5.0
+    ang = speed / radius
+    start = time.time()
+
     data = []
-    with open(parquet_path) as f:
-        for line in f:
-            data.append(json.loads(line.strip()))
-    
-    if not data:
-        print("[ANALYZE] No data to analyze")
-        return
-    
-    # Analytical queries (like DuckDB SQL)
-    n = len(data)
-    avg_speed = sum(d.get("speed_ms", 0) for d in data) / n
-    max_speed = max(d.get("speed_ms", 0) for d in data)
-    total_distance = sum(d.get("distance_delta", 0) for d in data)
-    avg_altitude = sum(d["z"] for d in data) / n
-    
-    print(f"\n=== FLIGHT ANALYSIS ===")
-    print(f"Total samples:     {n}")
-    print(f"Total distance:    {total_distance:.1f} m")
-    print(f"Average speed:     {avg_speed:.2f} m/s")
-    print(f"Max speed:         {max_speed:.2f} m/s")
-    print(f"Average altitude:  {avg_altitude:.1f} m")
-    print(f"======================\n")
-
-
-def generate_sample_data(output_path):
-    """Generate sample telemetry data for testing without ROS 2."""
-    import math
-    import time
-    
-    print("[SAMPLE] Generating synthetic drone telemetry...")
-    data = []
-    radius = 50.0
-    speed = 5.0
-    angular_speed = speed / radius
-    start_time = time.time()
-    
-    for i in range(1000):
-        t = i * 0.1  # 10Hz for 100 seconds
-        x = radius * math.cos(angular_speed * t)
-        y = radius * math.sin(angular_speed * t)
-        z = 10.0 + 5.0 * math.sin(0.1 * t)  # Varying altitude
-        
+    for i in range(num_records):
+        t = i * 0.1
         data.append({
-            "timestamp": start_time + t,
-            "x": round(x, 3),
-            "y": round(y, 3),
-            "z": round(z, 3),
-            "vx": round(-speed * math.sin(angular_speed * t), 3),
-            "vy": round(speed * math.cos(angular_speed * t), 3),
+            "timestamp": round(start + t, 3),
+            "topic": "/drone/odometry",
+            "msg_type": "nav_msgs/Odometry",
+            "x": round(radius * math.cos(ang * t), 3),
+            "y": round(radius * math.sin(ang * t), 3),
+            "z": round(10.0 + 5.0 * math.sin(0.1 * t), 3),
+            "vx": round(-speed * math.sin(ang * t), 3),
+            "vy": round(speed * math.cos(ang * t), 3),
             "vz": round(0.5 * math.cos(0.1 * t), 3),
+            "distance_delta": 0.0,
+            "speed_ms": 0.0,
         })
-    
-    with open(output_path, "w") as f:
+
+    with open(path, "w") as f:
         json.dump(data, f, indent=2)
-    
-    print(f"[SAMPLE] Generated {len(data)} samples -> {output_path}")
-    return output_path
+    print(f"[SAMPLE] {len(data)} records")
+    return str(path)
+
+
+def find_mcap_files(directory):
+    """Encontra arquivos .mcap recursivamente"""
+    path = Path(directory)
+    if not path.exists():
+        return []
+    return sorted(path.rglob("*.mcap"))
 
 
 def main():
-    print("=" * 50)
-    print("ROS 2 Drone ETL Pipeline")
-    print("MCAP -> Parquet -> DuckDB")
-    print("=" * 50)
-    
-    # Setup paths
-    data_dir = Path(__file__).parent.parent / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    
-    raw_path = data_dir / "raw" / "sample_telemetry.json"
-    processed_dir = data_dir / "processed"
+    print("=" * 60)
+    print("  ROS 2 Swarm - MCAP ETL Pipeline")
+    print("  MCAP (CDR ROS2) -> Parquet -> DuckDB")
+    print("=" * 60)
+
+    base = Path(__file__).parent.parent / "data"
+    raw_dir = base / "raw"
+    processed_dir = base / "processed"
+    raw_dir.mkdir(parents=True, exist_ok=True)
     processed_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = processed_dir / "flight_data.parquet"
-    
-    # Generate sample data if needed
-    if "--dry-run" in sys.argv:
-        print("[DRY RUN] Validating pipeline structure...")
-        print("  extract_data()    <- reads JSON/MCAP")
-        print("  transform_data()  <- cleans, adds features")
-        print("  load_to_parquet() <- saves as Parquet")
-        print("  analyze()         <- DuckDB SQL queries")
-        print("[DRY RUN] Pipeline structure validated!")
+
+    args = sys.argv[1:]
+
+    # Gerar dados de amostra
+    if "--generate-sample" in args or "--generate-mcap" in args:
+        num = 500
+        for a in args:
+            if a.startswith("--count="):
+                num = int(a.split("=")[1])
+
+        if "--generate-mcap" in args:
+            mcap_path = raw_dir / "sample_telemetry.mcap"
+            generate_sample_mcap(mcap_path, num)
+            print("\n  Rode sem flags para processar este MCAP.")
+        else:
+            json_path = raw_dir / "sample_telemetry.json"
+            generate_sample_json(json_path, num)
+            print("\n  Rode sem flags para processar este JSON.")
+
         return 0
-    
-    if not raw_path.exists() or "--generate-sample" in sys.argv:
-        generate_sample_data(raw_path)
-    
-    # Run ETL pipeline
-    raw_data = extract_data(raw_path)
-    transformed = transform_data(raw_data)
-    parquet_file = load_to_parquet(transformed, parquet_path)
-    analyze_with_duckdb(parquet_file)
-    
-    print("\n✅ Pipeline complete! Data ready for visualization.")
+
+    # Listar arquivos
+    if "--list" in args:
+        for label, ext in [("MCAP", "*.mcap"), ("JSON", "*.json")]:
+            files = sorted(raw_dir.rglob(ext))
+            print(f"\n{label} em {raw_dir}:")
+            for f in files:
+                print(f"  {f} ({f.stat().st_size/1024:.1f} KB)")
+        return 0
+
+    # Dry run
+    if "--dry-run" in args:
+        print(f"\n[DRY RUN] Raw: {raw_dir}  |  Processed: {processed_dir}")
+        print(f"[DRY RUN] MCAP files: {len(find_mcap_files(raw_dir))}")
+        print(f"[DRY RUN] Output: {processed_dir}/flight_data.parquet")
+        return 0
+
+    # --- Pipeline principal ---
+    mcap_files = find_mcap_files(raw_dir)
+    json_files = sorted(raw_dir.glob("*.json"))
+
+    if mcap_files:
+        all_records = []
+        for mcap_file in mcap_files:
+            records = extract_mcap(mcap_file)
+            all_records.extend(records)
+        data = all_records
+    elif json_files:
+        data = extract_json(json_files[0])
+    else:
+        print(f"\n[INFO] Nenhum arquivo MCAP ou JSON em {raw_dir}")
+        print(f"  python3 {sys.argv[0]} --generate-mcap")
+        print(f"  python3 {sys.argv[0]} --generate-sample")
+        return 1
+
+    data = transform(data)
+    parquet_path = processed_dir / "flight_data.parquet"
+    load_parquet(data, parquet_path)
+    analyze(parquet_path)
+
+    print("\n" + "=" * 60)
+    print("  Pipeline completo!")
+    print(f"  Saída: {parquet_path}")
+    print("=" * 60)
     return 0
 
 
