@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /ros2_ws
 COPY ros2_nodes/drone_telemetry/ /ros2_ws/drone_telemetry/
 
-RUN pip3 install /ros2_ws/drone_telemetry/
+RUN PIP_REQUIRE_VIRTUALENV=false pip3 install /ros2_ws/drone_telemetry/
 
 FROM ros:jazzy-ros-base AS runtime
 
