@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /ros2_ws
 COPY ros2_nodes/drone_telemetry/ /ros2_ws/drone_telemetry/
 
-RUN PIP_REQUIRE_VIRTUALENV=false pip3 install /ros2_ws/drone_telemetry/
+RUN pip3 install --break-system-packages /ros2_ws/drone_telemetry/
 
 FROM ros:jazzy-ros-base AS runtime
 
@@ -24,13 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-rosbag2-storage-mcap \
     && rm -rf /var/lib/apt/lists/*
 
-# Dependencias Python do ETL
-RUN PIP_REQUIRE_VIRTUALENV=false pip3 install --no-cache-dir \
-    duckdb>=1.0.0 \
-    pandas>=2.0.0 \
-    pyarrow>=14.0.0 \
-    mcap>=1.4.0 \
-    mcap-ros2-support>=0.5.0
+# Dependencias Python do ETL (via requirements.txt para manter sincronizado)
+COPY etl_pipeline/requirements.txt /tmp/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r /tmp/requirements.txt
 
 COPY --from=builder /ros2_ws/drone_telemetry /ros2_ws/drone_telemetry
 COPY cicd/entrypoint.sh /entrypoint.sh

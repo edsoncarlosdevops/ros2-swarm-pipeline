@@ -259,88 +259,31 @@ def load_parquet(data, parquet_path):
 
 
 def analyze(parquet_path):
-    """Analytics com DuckDB no Parquet"""
+    """Analytics com DuckDB no Parquet usando queries compartilhadas"""
+    from queries.flight_queries import (
+        flight_summary,
+        speed_distribution,
+        altitude_profile,
+        acceleration_stats,
+        topic_distribution,
+    )
+
     print(f"\n[ANALYZE] DuckDB SQL em: {parquet_path}")
-    con = duckdb.connect()
 
-    cols = list(pd.read_parquet(str(parquet_path)).columns)
-    has_pos = all(c in cols for c in ["x", "y", "z"])
-    has_vel = all(c in cols for c in ["vx", "vy", "vz"])
+    print("\n=== FLIGHT SUMMARY ===")
+    print(flight_summary(str(parquet_path)).to_string(index=False))
 
-    if has_pos:
-        r = con.execute("""
-            SELECT
-                COUNT(*) AS total_samples,
-                ROUND(SUM(distance_delta), 1) AS total_distance_m,
-                ROUND(AVG(speed_ms), 2) AS avg_speed_ms,
-                ROUND(MAX(speed_ms), 2) AS max_speed_ms,
-                ROUND(AVG(z), 1) AS avg_altitude_m,
-                ROUND(MIN(z), 1) AS min_altitude_m,
-                ROUND(MAX(z), 1) AS max_altitude_m
-            FROM read_parquet(?)
-        """, [str(parquet_path)]).fetchdf()
-        print("\n=== FLIGHT SUMMARY ===")
-        print(r.to_string(index=False))
+    print("\n=== SPEED DISTRIBUTION ===")
+    print(speed_distribution(str(parquet_path)).to_string(index=False))
 
-        r = con.execute("""
-            SELECT
-                CASE
-                    WHEN speed_ms < 2 THEN '0-2 m/s'
-                    WHEN speed_ms < 5 THEN '2-5 m/s'
-                    WHEN speed_ms < 10 THEN '5-10 m/s'
-                    WHEN speed_ms < 20 THEN '10-20 m/s'
-                    ELSE '20+ m/s'
-                END AS speed_range,
-                COUNT(*) AS count,
-                ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 1) AS pct
-            FROM read_parquet(?)
-            GROUP BY speed_range ORDER BY speed_range
-        """, [str(parquet_path)]).fetchdf()
-        print("\n=== SPEED DISTRIBUTION ===")
-        print(r.to_string(index=False))
+    print("\n=== ALTITUDE PROFILE ===")
+    print(altitude_profile(str(parquet_path)).to_string(index=False))
 
-        r = con.execute("""
-            SELECT
-                CASE
-                    WHEN z < 5 THEN '0-5 m'
-                    WHEN z < 10 THEN '5-10 m'
-                    WHEN z < 20 THEN '10-20 m'
-                    WHEN z < 50 THEN '20-50 m'
-                    ELSE '50+ m'
-                END AS altitude_range,
-                COUNT(*) AS count,
-                ROUND(AVG(speed_ms), 2) AS avg_speed,
-                ROUND(AVG(distance_delta), 2) AS avg_step_m
-            FROM read_parquet(?)
-            GROUP BY altitude_range ORDER BY altitude_range
-        """, [str(parquet_path)]).fetchdf()
-        print("\n=== ALTITUDE PROFILE ===")
-        print(r.to_string(index=False))
+    print("\n=== ACCELERATION ===")
+    print(acceleration_stats(str(parquet_path)).to_string(index=False))
 
-    if has_vel:
-        r = con.execute("""
-            SELECT
-                ROUND(AVG(ax), 3) AS avg_ax,
-                ROUND(AVG(ay), 3) AS avg_ay,
-                ROUND(AVG(az), 3) AS avg_az,
-                ROUND(MAX(SQRT(ax*ax + ay*ay + az*az)), 3) AS max_accel,
-                ROUND(AVG(SQRT(ax*ax + ay*ay + az*az)), 3) AS avg_accel
-            FROM read_parquet(?) WHERE ax IS NOT NULL
-        """, [str(parquet_path)]).fetchdf()
-        print("\n=== ACCELERATION ===")
-        print(r.to_string(index=False))
-
-    if "topic" in cols:
-        r = con.execute("""
-            SELECT topic, msg_type, COUNT(*) AS count,
-                   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 1) AS pct
-            FROM read_parquet(?)
-            GROUP BY topic, msg_type ORDER BY count DESC
-        """, [str(parquet_path)]).fetchdf()
-        print("\n=== TOPIC DISTRIBUTION ===")
-        print(r.to_string(index=False))
-
-    con.close()
+    print("\n=== TOPIC DISTRIBUTION ===")
+    print(topic_distribution(str(parquet_path)).to_string(index=False))
 
 
 def generate_sample_mcap(path, num_records=500):
