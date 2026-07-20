@@ -1,0 +1,60 @@
+# ============================================================================
+# ROS 2 Swarm Pipeline - Docker Compose
+#
+# Simula uma frota de drones com multiplos nodes ROS 2 se comunicando:
+#
+#   telemetry_pub (10Hz) ──/drone/odometry──> waypoint_planner
+#                                                    │
+#                                                    └──/drone/cmd_vel──> (futuro)
+#
+# Para rodar:
+#   docker compose build
+#   docker compose up
+# ============================================================================
+
+services:
+  # --- Node 1: Publica posicao do drone (10Hz) ---
+  telemetry_pub:
+    build:
+      context: .
+      dockerfile: cicd/Dockerfile
+    container_name: drone_telemetry_pub
+    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/drone_telemetry_pub.py
+    networks:
+      - ros2_swarm
+    environment:
+      - ROS_DOMAIN_ID=42  # Isola a comunicacao DDS
+
+  # --- Node 2: Assina /drone/odometry e salva dados para ETL ---
+  telemetry_sub:
+    build:
+      context: .
+      dockerfile: cicd/Dockerfile
+    container_name: drone_telemetry_sub
+    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/drone_telemetry_sub.py
+    depends_on:
+      - telemetry_pub  # So inicia quando o publisher estiver rodando
+    volumes:
+      - ./data/raw:/ros2_ws/data/raw  # Dados persistidos para ETL
+    networks:
+      - ros2_swarm
+    environment:
+      - ROS_DOMAIN_ID=42
+
+  # --- Node 3: Planejador de waypoints (navegacao) ---
+  waypoint_planner:
+    build:
+      context: .
+      dockerfile: cicd/Dockerfile
+    container_name: waypoint_planner
+    command: python3 /ros2_ws/drone_telemetry/drone_telemetry/waypoint_planner.py
+    depends_on:
+      - telemetry_pub  # Tambem depende do publisher
+    networks:
+      - ros2_swarm
+    environment:
+      - ROS_DOMAIN_ID=42
+
+networks:
+  ros2_swarm:
+    driver: bridge

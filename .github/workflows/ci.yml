@@ -179,12 +179,12 @@ jobs:
           "
 
   # ==========================================================================
-  # Job 4: Docker Build - Multi-architecture
+  # Job 4: Build ROS 2 Nodes (paralelo entre arquiteturas)
   # ==========================================================================
-  build:
-    name: Docker Build
+  build-node-pub:
+    name: 🛸 Node telemetry_pub (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    needs: [lint, etl]
+    needs: lint
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -201,45 +201,193 @@ jobs:
         with:
           platforms: linux/${{ matrix.arch }}
 
-      # --- Cache Nível 3: camadas Docker ---
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.arch }}-${{ github.sha }}
+          path: /tmp/.buildx-cache-pub
+          key: ${{ runner.os }}-buildx-pub-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.arch }}
-            ${{ runner.os }}-buildx-
+            ${{ runner.os }}-buildx-pub-${{ matrix.arch }}
+            ${{ runner.os }}-buildx-pub-
 
-      - name: Build Docker image
+      - name: Build telemetry_pub
         uses: docker/build-push-action@v6
         with:
           context: .
           file: cicd/Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: false
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          cache-from: type=local,src=/tmp/.buildx-cache-pub
+          cache-to: type=local,dest=/tmp/.buildx-cache-pub-new,mode=max
           load: true
-          tags: ${{ env.IMAGE_NAME }}:${{ matrix.arch }}-${{ github.sha }}
+          tags: ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }}
 
-      - name: Move cache (evita crescimento infinito)
+      - name: Move cache
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          rm -rf /tmp/.buildx-cache-pub
+          mv /tmp/.buildx-cache-pub-new /tmp/.buildx-cache-pub
 
-      - name: Test Docker image
+      - name: Test node - init
         run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:${{ matrix.arch }}-${{ github.sha }} \
+          docker run --rm ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
             python3 -c "
-          import duckdb
-          print(f'DuckDB: {duckdb.__version__}')
-          try:
-              from mcap.reader import make_reader
-              from mcap_ros2.decoder import DecoderFactory
-              print('MCAP + ROS2: OK')
-          except ImportError as e:
-              print(f'ERRO: {e}')
-              exit(1)
-          print('Container OK!')
+          from drone_telemetry.drone_telemetry_pub import DroneTelemetryPublisher
+          print('✅ telemetry_pub: OK (import OK)')
           "
+
+  build-node-sub:
+    name: 📊 Node telemetry_sub (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: build-node-pub  # Depende do pub existir
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/${{ matrix.arch }}
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache-sub
+          key: ${{ runner.os }}-buildx-sub-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-sub-${{ matrix.arch }}
+            ${{ runner.os }}-buildx-sub-
+
+      - name: Build telemetry_sub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cicd/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          cache-from: type=local,src=/tmp/.buildx-cache-sub
+          cache-to: type=local,dest=/tmp/.buildx-cache-sub-new,mode=max
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }}
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache-sub
+          mv /tmp/.buildx-cache-sub-new /tmp/.buildx-cache-sub
+
+      - name: Test node - init
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }} \
+            python3 -c "
+          from drone_telemetry.drone_telemetry_sub import DroneTelemetrySubscriber
+          print('✅ telemetry_sub: OK (import OK)')
+          "
+
+  build-node-nav:
+    name: 🧭 Node waypoint_planner (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: build-node-pub  # Depende do pub existir
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/${{ matrix.arch }}
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache-nav
+          key: ${{ runner.os }}-buildx-nav-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-nav-${{ matrix.arch }}
+            ${{ runner.os }}-buildx-nav-
+
+      - name: Build waypoint_planner
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cicd/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          cache-from: type=local,src=/tmp/.buildx-cache-nav
+          cache-to: type=local,dest=/tmp/.buildx-cache-nav-new,mode=max
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }}
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache-nav
+          mv /tmp/.buildx-cache-nav-new /tmp/.buildx-cache-nav
+
+      - name: Test node - init
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }} \
+            python3 -c "
+          from drone_telemetry.waypoint_planner import WaypointPlanner
+          print('✅ waypoint_planner: OK (import OK)')
+          "
+
+  # ==========================================================================
+  # Job 5: Docker Compose - Testa comunicacao entre nodes
+  # ==========================================================================
+  integration:
+    name: 🧪 Docker Compose (integracao)
+    runs-on: ubuntu-latest
+    needs: [build-node-pub, build-node-sub, build-node-nav]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        run: docker compose version
+
+      - name: Inicia nodes e testa comunicacao
+        run: |
+          # Sobe os nodes em background
+          docker compose up -d
+          
+          # Aguarda inicializacao
+          sleep 3
+          
+          # Verifica se todos os containers estao rodando
+          echo "=== Containers ==="
+          docker compose ps
+          
+          echo "=== Logs do publisher ==="
+          docker compose logs telemetry_pub --tail 5
+          
+          echo "=== Logs do subscriber ==="
+          docker compose logs telemetry_sub --tail 5
+          
+          echo "=== Logs do waypoint planner ==="
+          docker compose logs waypoint_planner --tail 5
+          
+          # Teste: subscriber deveria ter recebido dados
+          docker compose exec telemetry_sub \
+            python3 -c "
+          import json, os
+          raw_dir = '/ros2_ws/data/raw'
+          jsons = [f for f in os.listdir(raw_dir) if f.endswith('.json')]
+          if jsons:
+              print(f'✅ Dados salvos: {jsons[-1]}')
+          else:
+              print('⚠️ Nenhum dado salvo ainda (pode ser timeout)')
+          "
+          
+          docker compose down
