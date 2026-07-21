@@ -65,17 +65,6 @@ jobs:
       - name: Validate Parquet output structure and content
         id: validate
         run: |
-          python -c "
-          import pandas as pd, os
-          parquet_path = 'data/processed/flight_data.parquet'
-          assert os.path.exists(parquet_path), 'Parquet file not found!'
-          df = pd.read_parquet(parquet_path)
-          assert len(df) > 0, 'Parquet file is empty!'
-          required_cols = ['x', 'y', 'z', 'speed_ms', 'distance_delta']
-          assert all(c in df.columns for c in required_cols), f'Missing columns: {required_cols}'
-          print(f'Records: {len(df)}')
-          print(f'Total distance: {df["distance_delta"].sum():.1f} meters')
-          print(f'Average speed: {df["speed_ms"].mean():.2f} m/s')
-          print('Parquet validated successfully!')
-          "
+          python etl_pipeline/validate_parquet.py
           echo "parquet_path=data/processed/flight_data.parquet" >> $GITHUB_OUTPUT
+
