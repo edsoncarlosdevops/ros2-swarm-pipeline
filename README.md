@@ -83,34 +83,34 @@ real-world technical requirements for multi-drone swarm operations.
 ### Communication Topology
 
 ```
-  ┌────────────────────────────────────────────────────────────────────┐
-  │                        ROS 2 Domain (ID: 42)                        │
-  │                                                                     │
-  │  ┌──────────────────┐          ┌───────────────────────────────┐   │
-  │  │ telemetry_pub     │          │ telemetry_sub                  │   │
-  │  │ (Python, rclpy)   │──────────│ (Python, rclpy)                │   │
-  │  │ 10 Hz Odometry    │  /drone  │ Subscribes & logs              │   │
-  │  │ publisher         │  /odometry│ Feeds into ETL pipeline        │   │
-  │  └──────────────────┘          └───────────────────────────────┘   │
-  │         │                                                          │
-  │         │  /drone/odometry (nav_msgs/Odometry)                     │
-  │         │                                                          │
-  │         ▼                                                          │
-  │  ┌─────────────────────────────────────────────────────────────┐   │
-  │  │ drone_bridge (C++, rclcpp)                                   │   │
-  │  │ Cross-language DDS: Python → C++                             │   │
-  │  │ Auto-shutdown after 30s without messages                     │   │
-  │  │ Health checks, status logging                                │   │
-  │  └─────────────────────────────────────────────────────────────┘   │
-  │         │                                                          │
-  │         │  /drone/odometry (same topic, different language)        │
-  │         ▼                                                          │
-  │  ┌──────────────────┐                                              │
-  │  │ waypoint_planner │                                              │
-  │  │ (Python, rclpy)  │                                              │
-  │  │ Navigation logic │                                              │
-  │  └──────────────────┘                                              │
-  └────────────────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────────────────--┐
+  │                        ROS 2 Domain (ID: 42)                         │
+  │                                                                      │
+  │  ┌──────────────────-┐            ┌───────────────────────────────┐  │
+  │  │ telemetry_pub     │            │ telemetry_sub                 │  │
+  │  │ (Python, rclpy)   │─────────-─-│ (Python, rclpy)               │  │
+  │  │ 10 Hz Odometry    │  /drone    │ Subscribes & logs             │  │
+  │  │ publisher         │  /odometry │ Feeds into ETL pipeline       │  │
+  │  └──────────────────-┘            └───────────────────────────────┘  │
+  │         │                                                            │
+  │         │  /drone/odometry (nav_msgs/Odometry)                       │
+  │         │                                                            │
+  │         ▼                                                            │
+  │  ┌─────────────────────────────────────────────────────────────-┐    │
+  │  │ drone_bridge (C++, rclcpp)                                   │    │
+  │  │ Cross-language DDS: Python → C++                             │    │
+  │  │ Auto-shutdown after 30s without messages                     │    │
+  │  │ Health checks, status logging                                │    │
+  │  └─────────────────────────────────────────────────────────────-┘    │
+  │         │                                                            │
+  │         │  /drone/odometry (same topic, different language)          │
+  │         ▼                                                            │
+  │  ┌──────────────────┐                                                │
+  │  │ waypoint_planner │                                                │
+  │  │ (Python, rclpy)  │                                                │
+  │  │ Navigation logic │                                                │
+  │  └──────────────────┘                                                │
+  └────────────────────────────────────────────────────────────────────--┘
 ```
 
 ### Cross-Language DDS
@@ -139,10 +139,10 @@ This proves that:
 The ETL pipeline processes drone telemetry through three stages:
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│   MCAP   │────▶│  Parquet │────▶│  DuckDB  │────▶│  Report  │
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────-┐
+│   MCAP   │────▶│  Parquet │────▶│  DuckDB  │────▶│  Report   │
 │ (CDR CDR)│     │  (Zstd)  │     │   SQL    │     │  (Console)│
-└──────────┘     └──────────┘     └──────────┘     └──────────┘
+└──────────┘     └──────────┘     └──────────┘     └──────────-┘
      │               │               │               │
      │ CDR ROS2      │ Columnar      │ SQL queries   │ Aggregated
      │ binary        │ compression   │ via Python    │ statistics
@@ -274,7 +274,7 @@ correct execution order.
                                           │
                                           ▼
                           ┌─────────────────────────────────────┐
-                          │            lint (Flake8)             │
+                          │            lint (Flake8)            │
                           │         Code quality check          │
                           └─────────────────────────────────────┘
                                           │
@@ -283,7 +283,7 @@ correct execution order.
                     ▼                     ▼                     ▼
     ┌─────────────────────────┐  ┌──────────────┐  ┌───────────────────────┐
     │     etl (MCAP→Parquet)  │  │ colcon-build │  │ build-node-pub        │
-    │    Generate + transform  │  │ (C++ colcon) │  │ (Docker: amd64+arm64) │
+    │    Generate + transform │  │ (C++ colcon) │  │ (Docker: amd64+arm64) │
     └──────────┬──────────────┘  └──────────────┘  └───────────┬───────────┘
                │                                               │
                ▼                                               ▼
@@ -426,30 +426,30 @@ The pipeline uses **three levels of caching** to minimize build times:
 
 ```
 Level 1: Compiler Cache (ccache)
-┌─────────────────────────────────────────────────────┐
-│  Path: /root/.ccache (persisted via actions/cache)   │
-│  Key: runner + package-path + commit SHA            │
-│  Restore: runner + package-path (fallback)          │
-│  Max: 500MB                                         │
-│  Hit: ~8s savings on C++ rebuild                    │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────--┐
+│  Path: /root/.ccache (persisted via actions/cache)    │
+│  Key: runner + package-path + commit SHA              │
+│  Restore: runner + package-path (fallback)            │
+│  Max: 500MB                                           │
+│  Hit: ~8s savings on C++ rebuild                      │
+└─────────────────────────────────────────────────────--┘
 
 Level 2: Docker Layer Cache (Buildx)
-┌─────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────--─┐
 │  Path: /tmp/.buildx-cache (persisted via cache action)│
-│  Key: runner + service-name + arch + commit SHA     │
-│  Restore: runner + service-name + arch (fallback)   │
-│  Strategy: layer ordering (deps before source)      │
-│  Hit: ~60s savings on Docker rebuild                │
-└─────────────────────────────────────────────────────┘
+│  Key: runner + service-name + arch + commit SHA       │
+│  Restore: runner + service-name + arch (fallback)     │
+│  Strategy: layer ordering (deps before source)        │
+│  Hit: ~60s savings on Docker rebuild                  │
+└─────────────────────────────────────────────────────--┘
 
 Level 3: Dependency Cache (pip)
-┌─────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────-┐
 │  Path: ~/.cache/pip (persisted via actions/cache)    │
-│  Key: runner + hash of requirements.txt             │
-│  Restore: runner (fallback)                         │
-│  Hit: ~10s savings on pip install                   │
-└─────────────────────────────────────────────────────┘
+│  Key: runner + hash of requirements.txt              │
+│  Restore: runner (fallback)                          │
+│  Hit: ~10s savings on pip install                    │
+└─────────────────────────────────────────────────────-┘
 ```
 
 ### Shared Templates
@@ -469,22 +469,22 @@ without duplicating code:
 - Encapsulate complex logic (e.g., multi-arch Docker setup)
 
 ```
-                    ┌──────────────────────┐
-                    │  Team repositories   │
+                    ┌──────────────────────-----┐
+                    │  Team repositories        │
                     │  (call via workflow_call) │
-                    └──────────────────────┘
+                    └──────────────────────-----┘
                              │
                              ▼
-                    ┌──────────────────────┐
-                    │  Shared Workflows    │
-                    │  (lint, etl, build)  │
-                    └──────────────────────┘
+                    ┌─────────────────────----─┐
+                    │  Shared Workflows        │
+                    │  (lint, etl, build)      │
+                    └──────────────────────----┘
                              │
                              ▼
-                    ┌──────────────────────┐
-                    │  Composite Actions   │
+                    ┌──────────────────────----┐
+                    │  Composite Actions       │
                     │  (setup, colcon, docker) │
-                    └──────────────────────┘
+                    └─────────────────────----─┘
 ```
 
 ---
@@ -570,7 +570,7 @@ Expected output:
 
 Flight Summary:
 ┌─────────┬──────────────────────┬────────────┬──────────────────────┐
-│ samples │ total_distance_meters │ avg_speed  │ avg_altitude_meters  │
+│ samples │ total_distance_meters│ avg_speed  │ avg_altitude_meters  │
 ├─────────┼──────────────────────┼────────────┼──────────────────────┤
 │    1000 │              3141.59 │       5.00 │                10.00 │
 └─────────┴──────────────────────┴────────────┴──────────────────────┘
