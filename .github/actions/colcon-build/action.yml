@@ -3,7 +3,11 @@
 #
 # Shared template for building ROS 2 C++ packages with colcon.
 # Runs inside a ROS 2 container and handles the full build lifecycle:
-# copying source to workspace, invoking colcon, and verifying the output.
+# copying source to workspace, invoking colcon, and verifying output.
+#
+# Note: Build toolchain (colcon-common-extensions, cmake, build-essential)
+# is installed by the calling workflow (colcon-build.yml), not by this action.
+# This keeps the action focused on the build itself, avoiding redundancy.
 #
 # Usage:
 #   - uses: ./.github/actions/colcon-build
@@ -40,17 +44,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install C++ build toolchain
-      shell: bash
-      run: |
-        apt-get update && apt-get install -y --no-install-recommends \
-          python3-pip \
-          python3-colcon-common-extensions \
-          build-essential \
-          cmake \
-          ccache \
-        && rm -rf /var/lib/apt/lists/*
-
     - name: Copy package source to colcon workspace
       shell: bash
       run: |
