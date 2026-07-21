@@ -1,0 +1,41 @@
+# =============================================================================
+# Reusable Workflow: Code Lint
+#
+# Shared template for linting Python ROS 2 nodes with Flake8.
+# Called by the main orchestrator (ci.yml) via workflow_call.
+#
+# This implements the shared CI template pattern that allows any team
+# (control, vision, navigation) to reuse the same linting pipeline.
+# =============================================================================
+
+name: Lint ROS 2 Nodes
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to use for linting
+        required: false
+        type: string
+        default: "3.12"
+      max-line-length:
+        description: Maximum line length for Flake8
+        required: false
+        type: number
+        default: 100
+
+jobs:
+  flake8:
+    name: Flake8 Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ inputs.python-version }}
+          extra-packages: flake8
+      - name: Run Flake8 on ROS 2 Python nodes
+        run: |
+          flake8 ros2_nodes/ --max-line-length=${{ inputs.max-line-length }} --statistics
+          echo Lint passed successfully!

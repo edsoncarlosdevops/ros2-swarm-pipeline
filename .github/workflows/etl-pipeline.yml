@@ -1,0 +1,81 @@
+# =============================================================================
+# Reusable Workflow: ETL Pipeline (MCAP -> Parquet -> DuckDB)
+#
+# Shared template for the data pipeline that processes drone flight data.
+# Can be called by any branch or project that needs to convert ROS 2 bag
+# files (MCAP format) into analytical Parquet files.
+#
+# Outputs:
+#   parquet-path: Path to the generated Parquet file for downstream jobs
+# =============================================================================
+
+name: ETL Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to use
+        required: false
+        type: string
+        default: "3.12"
+      mcap-count:
+        description: Number of synthetic MCAP messages to generate
+        required: false
+        type: number
+        default: 500
+    outputs:
+      parquet-path:
+        description: Path to the generated Parquet file
+        value: ${{ jobs.etl.outputs.parquet_path }}
+
+jobs:
+  etl:
+    name: MCAP to Parquet to DuckDB
+    runs-on: ubuntu-latest
+    outputs:
+      parquet_path: ${{ steps.validate.outputs.parquet_path }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ inputs.python-version }}
+          requirements: etl_pipeline/requirements.txt
+
+      - name: Cache data artifacts between runs
+        uses: actions/cache@v4
+        id: data-cache
+        with:
+          path: |
+            data/raw/
+            data/processed/
+          key: ${{ runner.os }}-data-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-data-
+
+      - name: Generate synthetic MCAP file (CDR ROS 2 format)
+        run: python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=${{ inputs.mcap-count }}
+
+      - name: Run full ETL pipeline (MCAP -> Parquet)
+        run: python etl_pipeline/mcap_to_parquet.py
+
+      - name: Validate Parquet output structure and content
+        id: validate
+        run: |
+          python -c "
+          import pandas as pd, os
+          parquet_path = 'data/processed/flight_data.parquet'
+          assert os.path.exists(parquet_path), 'Parquet file not found!'
+          df = pd.read_parquet(parquet_path)
+          assert len(df) > 0, 'Parquet file is empty!'
+          required_cols = ['x', 'y', 'z', 'speed_ms', 'distance_delta']
+          assert all(c in df.columns for c in required_cols), f'Missing columns: {required_cols}'
+          print(f'Records: {len(df)}')
+          print(f'Total distance: {df["distance_delta"].sum():.1f} meters')
+          print(f'Average speed: {df["speed_ms"].mean():.2f} m/s')
+          print('Parquet validated successfully!')
+          "
+          echo "parquet_path=data/processed/flight_data.parquet" >> $GITHUB_OUTPUT

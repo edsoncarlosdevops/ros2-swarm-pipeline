@@ -1,4 +1,24 @@
-name: ROS 2 Drone Pipeline
+# =============================================================================
+# ROS 2 Swarm Pipeline - CI/CD Orchestrator
+#
+# Main workflow that orchestrates reusable shared templates.
+# Each job delegates to a dedicated reusable workflow, following the
+# shared template pattern that Andrea Vergine described as a priority
+# for the Swarm Team DevOps platform at TII Abu Dhabi.
+#
+# Key design decisions:
+#   1. Shared templates (reusable workflows) for DRY CI/CD
+#   2. Composite actions for step-level reusability
+#   3. Explicit dependency graph (needs) for pipeline efficiency
+#   4. Matrix builds for multi-architecture (amd64 + arm64)
+#
+# Pipeline stages:
+#   lint -> etl -> analyze         (data pipeline: MCAP -> Parquet -> DuckDB)
+#   lint -> colcon-build           (C++ ROS 2 build with colcon)
+#   lint -> docker-build -> integration (container validation)
+# =============================================================================
+
+name: ROS 2 Swarm Pipeline
 
 on:
   push:
@@ -7,111 +27,31 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-  PYTHON_VERSION: "3.12"
-
 jobs:
-  # ==========================================================================
-  # Job 1: Lint - Code Quality
-  # ==========================================================================
+  # --------------------------------------------------------------------------
+  # Stage 1: Code Quality - Flake8 lint on all Python ROS 2 nodes
+  # --------------------------------------------------------------------------
   lint:
     name: Code Quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/lint.yml
+    with:
+      python-version: "3.12"
+      max-line-length: 100
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Cache pip (nível 1)
-        uses: actions/cache@v4
-        id: pip-cache
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('etl_pipeline/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install linters
-        run: pip install flake8
-
-      - name: Lint ROS 2 nodes
-        run: flake8 ros2_nodes/ --max-line-length=100 --statistics
-
-  # ==========================================================================
-  # Job 2: ETL Pipeline - MCAP → Parquet
-  # ==========================================================================
+  # --------------------------------------------------------------------------
+  # Stage 2: Data Pipeline - Generate MCAP, convert to Parquet, validate
+  # --------------------------------------------------------------------------
   etl:
     name: ETL Pipeline
-    runs-on: ubuntu-latest
     needs: lint
+    uses: ./.github/workflows/etl-pipeline.yml
+    with:
+      python-version: "3.12"
+      mcap-count: 500
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      # --- Cache Nível 1: pip ---
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        id: pip-cache
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-etl-${{ hashFiles('etl_pipeline/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-etl-
-            ${{ runner.os }}-pip-
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r etl_pipeline/requirements.txt
-
-      # --- Cache Nível 2: dados MCAP/Parquet entre runs ---
-      - name: Cache data artifacts
-        uses: actions/cache@v4
-        id: data-cache
-        with:
-          path: |
-            data/raw/
-            data/processed/
-          key: ${{ runner.os }}-data-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-data-
-
-      - name: Generate synthetic MCAP (CDR ROS2 real)
-        run: python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=500
-
-      - name: Run full ETL pipeline
-        run: python etl_pipeline/mcap_to_parquet.py
-
-      - name: Validate Parquet output
-        run: |
-          python -c "
-          import pandas as pd, os
-          parquet_path = 'data/processed/flight_data.parquet'
-          assert os.path.exists(parquet_path), f'{parquet_path} nao encontrado!'
-          df = pd.read_parquet(parquet_path)
-          assert len(df) > 0, 'Parquet vazio!'
-          assert all(c in df.columns for c in ['x', 'y', 'z']), 'Colunas ausentes!'
-          print(f'\\n=== VALIDACAO ===')
-          print(f'Registros: {len(df)}')
-          print(f'Colunas: {list(df.columns)}')
-          print(f'Distancia total: {df[\"distance_delta\"].sum():.1f} m')
-          print(f'Velocidade media: {df[\"speed_ms\"].mean():.2f} m/s')
-          print(f'\\n✅ Parquet validado!')
-          "
-
-  # ==========================================================================
-  # Job 3: Analytics - DuckDB SQL
-  # ==========================================================================
+  # --------------------------------------------------------------------------
+  # Stage 3: Analytics - DuckDB SQL queries on Parquet flight data
+  # --------------------------------------------------------------------------
   analyze:
     name: DuckDB Analytics
     runs-on: ubuntu-latest
@@ -120,23 +60,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python environment with pip cache
+        uses: ./.github/actions/setup-python
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.12"
+          requirements: etl_pipeline/requirements.txt
 
-      # Restaura cache pip
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-etl-${{ hashFiles('etl_pipeline/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-etl-
-            ${{ runner.os }}-pip-
-
-      # Restaura cache de dados
-      - name: Restore data cache
+      - name: Cache data artifacts between runs
         uses: actions/cache@v4
         with:
           path: |
@@ -146,15 +76,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-data-
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r etl_pipeline/requirements.txt
-
-      - name: Run all DuckDB queries
+      - name: Execute DuckDB analytical queries
         run: python etl_pipeline/analyze_flight.py
 
-      - name: Validate analytics
+      - name: Validate analytics results with assertions
         run: |
           python -c "
           import duckdb
@@ -167,235 +92,90 @@ jobs:
               FROM read_parquet('data/processed/flight_data.parquet')
           ''').fetchdf()
           con.close()
-          print(f'\\n=== RESUMO ===')
-          print(f'Amostras: {df[\"n\"].values[0]}')
-          print(f'Distancia: {df[\"total_dist\"].values[0]} m')
-          print(f'Speed avg: {df[\"avg_speed\"].values[0]} m/s')
-          print(f'Altitude:  {df[\"avg_alt\"].values[0]} m')
-          assert df['n'].values[0] > 0, 'Zero amostras!'
-          assert df['total_dist'].values[0] > 100, 'Distancia baixa!'
-          assert df['avg_speed'].values[0] > 1.0, 'Velocidade baixa!'
-          print('✅ Analytics validado!')
+          print(f'Samples: {df["n"].values[0]}')
+          print(f'Distance: {df["total_dist"].values[0]} m')
+          print(f'Speed avg: {df["avg_speed"].values[0]} m/s')
+          print(f'Altitude:  {df["avg_alt"].values[0]} m')
+          assert df['n'].values[0] > 0, 'Zero samples!'
+          assert df['total_dist'].values[0] > 100, 'Low distance!'
+          assert df['avg_speed'].values[0] > 1.0, 'Low speed!'
+          print('Analytics validated!')
           "
 
-  # ==========================================================================
-  # Job 4: Build ROS 2 Nodes (paralelo entre arquiteturas)
-  # ==========================================================================
-  build-node-pub:
-    name: 🛸 Node telemetry_pub (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+  # --------------------------------------------------------------------------
+  # Stage 4: C++ Build - Compile ROS 2 C++ nodes with colcon
+  # --------------------------------------------------------------------------
+  colcon-build:
+    name: C++ Colcon Build
     needs: lint
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-      fail-fast: false
+    uses: ./.github/workflows/colcon-build.yml
+    with:
+      ros-distro: "jazzy"
+      package-path: "ros2_nodes/drone_bridge"
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/${{ matrix.arch }}
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache-pub
-          key: ${{ runner.os }}-buildx-pub-${{ matrix.arch }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-pub-${{ matrix.arch }}
-            ${{ runner.os }}-buildx-pub-
-
-
-      - name: Build telemetry_pub
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: cicd/Dockerfile
-          platforms: linux/${{ matrix.arch }}
-          push: false
-          cache-from: type=local,src=/tmp/.buildx-cache-pub
-          cache-to: type=local,dest=/tmp/.buildx-cache-pub-new,mode=max
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }}
-
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache-pub
-          mv /tmp/.buildx-cache-pub-new /tmp/.buildx-cache-pub
-
-      - name: Test node - init
-        run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:pub-${{ matrix.arch }}-${{ github.sha }} \
-            python3 -c "
-          # Verifica que o package drone_telemetry foi instalado
-          import importlib.util
-          spec = importlib.util.find_spec('drone_telemetry')
-          assert spec is not None, 'drone_telemetry nao encontrado!'
-          print(f'✅ telemetry_pub: package OK ({spec.origin})')
-          "
+  # --------------------------------------------------------------------------
+  # Stage 5: Docker Build - Multi-architecture container images
+  # --------------------------------------------------------------------------
+  build-node-pub:
+    name: Node telemetry_pub
+    needs: lint
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      service-name: "pub"
+      dockerfile: "cicd/Dockerfile"
+      context: "."
 
   build-node-sub:
-    name: 📊 Node telemetry_sub (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    needs: build-node-pub  # Depende do pub existir
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-      fail-fast: false
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/${{ matrix.arch }}
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache-sub
-          key: ${{ runner.os }}-buildx-sub-${{ matrix.arch }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-sub-${{ matrix.arch }}
-            ${{ runner.os }}-buildx-sub-
-
-      - name: Build telemetry_sub
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: cicd/Dockerfile
-          platforms: linux/${{ matrix.arch }}
-          push: false
-          cache-from: type=local,src=/tmp/.buildx-cache-sub
-          cache-to: type=local,dest=/tmp/.buildx-cache-sub-new,mode=max
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }}
-
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache-sub
-          mv /tmp/.buildx-cache-sub-new /tmp/.buildx-cache-sub
-
-      - name: Test node - init
-        run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:sub-${{ matrix.arch }}-${{ github.sha }} \
-            python3 -c "
-          import importlib.util
-          spec = importlib.util.find_spec('drone_telemetry')
-          assert spec is not None, 'drone_telemetry nao encontrado!'
-          print(f'✅ telemetry_sub: package OK ({spec.origin})')
-          "
+    name: Node telemetry_sub
+    needs: build-node-pub
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      service-name: "sub"
+      dockerfile: "cicd/Dockerfile"
+      context: "."
 
   build-node-nav:
-    name: 🧭 Node waypoint_planner (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    needs: build-node-pub  # Depende do pub existir
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-      fail-fast: false
+    name: Node waypoint_planner
+    needs: build-node-pub
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      service-name: "nav"
+      dockerfile: "cicd/Dockerfile"
+      context: "."
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/${{ matrix.arch }}
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache-nav
-          key: ${{ runner.os }}-buildx-nav-${{ matrix.arch }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-nav-${{ matrix.arch }}
-            ${{ runner.os }}-buildx-nav-
-
-      - name: Build waypoint_planner
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: cicd/Dockerfile
-          platforms: linux/${{ matrix.arch }}
-          push: false
-          cache-from: type=local,src=/tmp/.buildx-cache-nav
-          cache-to: type=local,dest=/tmp/.buildx-cache-nav-new,mode=max
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }}
-
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache-nav
-          mv /tmp/.buildx-cache-nav-new /tmp/.buildx-cache-nav
-
-      - name: Test node - init
-        run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:nav-${{ matrix.arch }}-${{ github.sha }} \
-            python3 -c "
-          import importlib.util
-          spec = importlib.util.find_spec('drone_telemetry')
-          assert spec is not None, 'drone_telemetry nao encontrado!'
-          print(f'✅ waypoint_planner: package OK ({spec.origin})')
-          "
-
-  # ==========================================================================
-  # Job 5: Docker Compose - Testa comunicacao entre nodes
-  # ==========================================================================
+  # --------------------------------------------------------------------------
+  # Stage 6: Integration - Validate multi-node DDS communication
+  # Tests: Python-to-Python DDS and Python-to-C++ cross-language DDS
+  # --------------------------------------------------------------------------
   integration:
-    name: 🧪 Docker Compose (integracao)
+    name: Docker Compose Integration
     runs-on: ubuntu-latest
     needs: [build-node-pub, build-node-sub, build-node-nav]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Compose
+      - name: Setup Docker Compose
         run: docker compose version
 
-      - name: Inicia nodes e testa comunicacao
+      - name: Start ROS 2 nodes and verify DDS communication
         run: |
-          # Sobe os nodes em background
           docker compose up -d
-          
-          # Aguarda inicializacao
-          sleep 3
-          
-          # Verifica se todos os containers estao rodando
-          echo "=== Containers ==="
+          sleep 5
+
+          echo "=== Running containers ==="
           docker compose ps
-          
-          echo "=== Logs do publisher ==="
+
+          echo "=== Publisher node logs (Python, 10Hz) ==="
           docker compose logs telemetry_pub --tail 5
-          
-          echo "=== Logs do subscriber ==="
+
+          echo "=== Subscriber node logs (Python, ETL) ==="
           docker compose logs telemetry_sub --tail 5
-          
-          echo "=== Logs do waypoint planner ==="
+
+          echo "=== C++ Bridge node logs (cross-language DDS) ==="
+          docker compose logs drone_bridge --tail 5
+
+          echo "=== Waypoint Planner node logs (Python, navigation) ==="
           docker compose logs waypoint_planner --tail 5
-          
-          # Teste: subscriber deveria ter recebido dados
-          docker compose exec telemetry_sub \
-            python3 -c "
-          import json, os
-          raw_dir = '/ros2_ws/data/raw'
-          jsons = [f for f in os.listdir(raw_dir) if f.endswith('.json')]
-          if jsons:
-              print(f'✅ Dados salvos: {jsons[-1]}')
-          else:
-              print('⚠️ Nenhum dado salvo ainda (pode ser timeout)')
-          "
-          
+
           docker compose down

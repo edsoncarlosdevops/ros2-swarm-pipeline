@@ -1,0 +1,59 @@
+# =============================================================================
+# Reusable Workflow: Docker Multi-architecture Build
+#
+# Shared template for building Docker images with matrix strategy.
+# Compiles for both amd64 and arm64 architectures in parallel.
+#
+# This addresses the heterogeneous runner requirements: different
+# architectures (CPU, GPU, ARM64) managed through CI matrix strategies.
+# =============================================================================
+
+name: Docker Multi-architecture Build
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: Logical name of the service/node being built
+        required: true
+        type: string
+      dockerfile:
+        description: Path to the Dockerfile
+        required: false
+        type: string
+        default: cicd/Dockerfile
+      context:
+        description: Docker build context directory
+        required: false
+        type: string
+        default: "."
+
+jobs:
+  build:
+    name: ${{ inputs.service-name }} (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image with layer caching
+        uses: ./.github/actions/docker-build
+        with:
+          service-name: ${{ inputs.service-name }}
+          dockerfile: ${{ inputs.dockerfile }}
+          context: ${{ inputs.context }}
+          arch: ${{ matrix.arch }}
+
+      - name: Verify ROS 2 package is installed in container
+        run: |
+          docker run --rm ${{ github.repository }}:${{ inputs.service-name }}-${{ matrix.arch }}-${{ github.sha }} \
+            python3 -c "
+          import importlib.util
+          spec = importlib.util.find_spec('drone_telemetry')
+          assert spec is not None, 'Package not found in container!'
+          print(f'Package verified: {spec.origin}')
+          "

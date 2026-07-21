@@ -1,0 +1,77 @@
+# =============================================================================
+# Composite Action: Colcon C++ Build
+#
+# Shared template for building ROS 2 C++ packages with colcon.
+# Runs inside a ROS 2 container and handles the full build lifecycle:
+# copying source to workspace, invoking colcon, and verifying the output.
+#
+# Usage:
+#   - uses: ./.github/actions/colcon-build
+#     with:
+#       package-path: ros2_nodes/drone_bridge
+#       ros-distro: jazzy
+# =============================================================================
+
+name: Colcon C++ Build
+description: Builds ROS 2 C++ packages with colcon (ament_cmake)
+
+inputs:
+  package-path:
+    description: Path to the C++ package (relative to repo root)
+    required: true
+  ros-distro:
+    description: ROS 2 distribution name
+    required: false
+    default: jazzy
+  workspace-dir:
+    description: Colcon workspace directory inside container
+    required: false
+    default: /ros2_ws
+  cmake-build-type:
+    description: CMake build type (Release or Debug)
+    required: false
+    default: Release
+
+outputs:
+  binary-path:
+    description: Path to the built binary
+    value: ${{ steps.build.outputs.binary }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install C++ build toolchain
+      shell: bash
+      run: |
+        apt-get update && apt-get install -y --no-install-recommends \
+          python3-pip \
+          python3-colcon-common-extensions \
+          build-essential \
+          cmake \
+          ccache \
+        && rm -rf /var/lib/apt/lists/*
+
+    - name: Copy package source to colcon workspace
+      shell: bash
+      run: |
+        mkdir -p ${{ inputs.workspace-dir }}/src
+        cp -r ${{ inputs.package-path }} ${{ inputs.workspace-dir }}/src/
+
+    - name: Build with colcon (ament_cmake)
+      id: build
+      shell: bash
+      run: |
+        . /opt/ros/${{ inputs.ros-distro }}/setup.sh
+        cd ${{ inputs.workspace-dir }}
+        colcon build --symlink-install --event-handlers console_direct+ \
+          --cmake-args -DCMAKE_BUILD_TYPE=${{ inputs.cmake-build-type }}
+        echo "binary=${{ inputs.workspace-dir }}/install/$(basename ${{ inputs.package-path }})" >> $GITHUB_OUTPUT
+
+    - name: List built artifacts
+      shell: bash
+      run: |
+        . /opt/ros/${{ inputs.ros-distro }}/setup.sh
+        cd ${{ inputs.workspace-dir }}
+        . install/setup.sh
+        echo "Build artifacts:"
+        find install -name "*.so" -o -type f -executable 2>/dev/null | head -10
