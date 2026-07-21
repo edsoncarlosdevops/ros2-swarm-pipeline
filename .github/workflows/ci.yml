@@ -80,28 +80,7 @@ jobs:
         run: python etl_pipeline/analyze_flight.py
 
       - name: Validate analytics results with assertions
-        run: |
-          python -c "
-          import duckdb
-          con = duckdb.connect()
-          df = con.execute('''
-              SELECT COUNT(*) as n,
-                     ROUND(SUM(distance_delta), 1) as total_dist,
-                     ROUND(AVG(speed_ms), 2) as avg_speed,
-                     ROUND(AVG(z), 1) as avg_alt
-              FROM read_parquet('data/processed/flight_data.parquet')
-          ''').fetchdf()
-          con.close()
-          print(f'Samples: {df["n"].values[0]}')
-          print(f'Distance: {df["total_dist"].values[0]} m')
-          print(f'Speed avg: {df["avg_speed"].values[0]} m/s')
-          print(f'Altitude:  {df["avg_alt"].values[0]} m')
-          assert df['n'].values[0] > 0, 'Zero samples!'
-          assert df['total_dist'].values[0] > 100, 'Low distance!'
-          assert df['avg_speed'].values[0] > 1.0, 'Low speed!'
-          print('Analytics validated!')
-          "
-
+        run: python etl_pipeline/validate_analytics.py
   # --------------------------------------------------------------------------
   # Stage 4: C++ Build - Compile ROS 2 C++ nodes with colcon
   # --------------------------------------------------------------------------
@@ -179,3 +158,4 @@ jobs:
           docker compose logs waypoint_planner --tail 5
 
           docker compose down
+
