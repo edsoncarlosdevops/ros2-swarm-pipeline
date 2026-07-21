@@ -1,12 +1,19 @@
 # =============================================================================
-# Reusable Workflow: Colcon C++ Build
+# Reusable Workflow: Colcon C++ Build with ccache
 #
 # Shared template for building ROS 2 C++ packages with colcon (ament_cmake).
-# Runs inside a ROS 2 Jazzy container and can be reused by any C++ package
-# in the workspace.
+# Runs inside a ROS 2 Jazzy container with ccache enabled for faster
+# incremental builds across CI runs.
 #
-# This demonstrates the shared CI template approach for cross-language
-# ROS 2 pipelines (Python + C++ in the same codebase).
+# ccache is configured with:
+#   - Persistent cache via actions/cache (keyed by OS + package path)
+#   - Max cache size of 500MB to avoid runner disk exhaustion
+#   - Export to PATH before colcon build (activates automatic compiler wrap)
+#
+# Cache strategy:
+#   - Full cache hit: restores ~/.ccache from previous successful run
+#   - Partial cache hit: restores from any branch's ccache
+#   - Cache miss: builds from scratch, saves for next run
 # =============================================================================
 
 name: Colcon C++ Build
@@ -43,11 +50,34 @@ jobs:
             ccache \
           && rm -rf /var/lib/apt/lists/*
 
-      - name: Build C++ package with colcon
+      - name: Cache ccache for faster incremental builds
+        uses: actions/cache@v4
+        id: ccache-cache
+        with:
+          path: /root/.ccache
+          key: ${{ runner.os }}-ccache-${{ inputs.package-path }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ inputs.package-path }}
+            ${{ runner.os }}-ccache-
+
+      - name: Configure ccache environment
+        run: |
+          ccache --max-size 500M
+          ccache --zero-stats
+          echo "CCACHE_DIR=/root/.ccache" >> $GITHUB_ENV
+          echo "/usr/lib/ccache" >> $GITHUB_PATH
+          echo "ccache configured and activated"
+
+      - name: Build C++ package with colcon (ccache enabled)
         uses: ./.github/actions/colcon-build
         with:
           package-path: ${{ inputs.package-path }}
           ros-distro: ${{ inputs.ros-distro }}
+
+      - name: Display ccache statistics
+        run: |
+          echo "=== ccache Statistics ==="
+          ccache --show-stats
 
       - name: Verify C++ binary exists and is executable
         run: |
