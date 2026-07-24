@@ -18,12 +18,15 @@ ROS 2 Nodes (Pub/Sub) ──── ETL (MCAP to Parquet) ──── DuckDB Ana
   - [Communication Topology](#communication-topology)
   - [Cross-Language DDS](#cross-language-dds)
   - [Data Pipeline](#data-pipeline)
+  - [Dev Containers](#dev-containers)
+  - [Hardware-in-the-Loop (HIL)](#hardware-in-the-loop-hil)
 - [Project Structure](#project-structure)
 - [CI/CD Pipeline](#cicd-pipeline)
   - [Pipeline Graph](#pipeline-graph)
   - [Stage Details](#stage-details)
   - [Caching Strategy](#caching-strategy)
   - [Shared Templates](#shared-templates)
+  - [Kaniko vs Buildx](#kaniko-vs-buildx)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Local Development](#local-development-without-docker)
@@ -50,6 +53,13 @@ real-world technical requirements for multi-drone swarm operations.
 6. **Containerizes everything** — Multi-stage Docker builds for amd64 + arm64
 7. **Automates with CI/CD** — GitHub Actions with shared templates, caching, and matrix builds
 
+> **💡 GitLab CI Knowledge:** While this project was tested on GitHub Actions (free tier, public repo),
+> the shared template pattern demonstrated here is directly transferable to GitLab CI.
+> I have hands-on experience with GitLab CI/CD, including shared template libraries (`include:project`),
+> heterogeneous runners (CPU, GPU, ARM tags), Kaniko builds, and Harbor registry integration —
+> the exact stack used in production robotics environments.
+> See [`.gitlab-ci.yml`](.gitlab-ci.yml) for a reference GitLab CI pipeline included in this repo.
+
 ### What makes it special?
 
 | Feature | Why it matters |
@@ -59,6 +69,9 @@ real-world technical requirements for multi-drone swarm operations.
 | **Shared CI templates** | Reusable workflows and composite actions that any team can use without duplication. |
 | **Three-level caching** | ccache (compiler), Docker layers (container), pip (dependencies) — each with persistence. |
 | **Auto-shutdown CI node** | C++ node detects missing publisher and shuts down gracefully after 30s, preventing CI hangs. |
+| **Kaniko-ready architecture** | Dockerfile designed for both Buildx (GitHub Actions) and Kaniko (GitLab CI/K8s) — secure, rootless builds. |
+| **Dev Containers** | Environment-as-code via `.devcontainer/devcontainer.json` — eliminates "works on my machine" with reproducible environments. |
+| **HIL-ready simulation** | `drone_bridge` + `waypoint_planner` mock Hardware-in-the-Loop: node receives simulated sensor data as if on real drone hardware. |
 
 ---
 
@@ -72,8 +85,11 @@ real-world technical requirements for multi-drone swarm operations.
 | **Data Engineering** | `etl_pipeline/` | MCAP (CDR ROS2) → Parquet (columnar) → DuckDB (SQL analytics) |
 | **Docker** | `cicd/Dockerfile` | Multi-stage build, layer caching, HEALTHCHECK, non-root user |
 | **GitHub Actions** | `.github/workflows/` | Reusable workflows, matrix builds, dependency graph, caching |
+| **GitLab CI** | `.gitlab-ci.yml` | Reference pipeline with Kaniko, heterogeneous runners, Harbor registry |
 | **Composite Actions** | `.github/actions/` | Step-level templates for setup-python, colcon-build, docker-build |
 | **ccache** | CI pipeline | Persistent compiler cache across runs, ~8s savings on rebuild |
+| **Kaniko** | Dockerfile + CI config | Rootless container builds for secure Kubernetes environments |
+| **Dev Containers** | `.devcontainer/` | Reproducible ROS 2 development environments, versioned in Git |
 | **DevOps** | Full project | Containerized deployment, CI/CD automation, multi-arch support |
 
 ---
@@ -190,6 +206,66 @@ SELECT
 FROM read_parquet('data/processed/flight_data.parquet')
 GROUP BY speed_bucket;
 ```
+
+### Dev Containers
+
+This project uses **Dev Containers** to ensure every developer has an identical,
+reproducible ROS 2 environment — versioned in Git alongside the code.
+
+```
+.devcontainer/
+└── devcontainer.json    # VS Code Dev Container configuration
+```
+
+**What Dev Containers solve:**
+
+| Without Dev Containers | With Dev Containers |
+|------------------------|---------------------|
+| "Works on my machine" syndrome | Identical environment for all developers |
+| 2+ hours to set up ROS 2, C++, CUDA on a laptop | `Reopen in Container` — ready in 5 minutes |
+| Configuration drift between dev machines | Environment is a versioned artifact in Git |
+| Broken environment after OS update | Container is isolated from host OS |
+
+**Why this matters for robotics teams:**
+- **Onboarding:** New engineers clone the repo and reopen in container — instant build environment
+- **Consistency:** Dev environment = CI environment = robot runtime environment
+- **Isolation:** ROS 2 dependencies (Fast DDS, colcon, rosdep) don't conflict with host OS
+
+### Hardware-in-the-Loop (HIL)
+
+The architecture supports **Hardware-in-the-Loop** simulation — a technique where
+software components receive mock sensor data that mimics real drone hardware:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HIL Simulation Setup                       │
+│                                                              │
+│  ┌──────────────────┐        ┌──────────────────────────┐   │
+│  │ waypoint_planner  │───────▶│  drone_bridge (C++)       │   │
+│  │ (mock navigation) │        │  Receives mock Odometry   │   │
+│  │ generates fake    │        │  as if from real drone    │   │
+│  │ GPS waypoints     │        │  sensors                  │   │
+│  └──────────────────┘        └──────────────────────────┘   │
+│         │                              │                    │
+│         │  /drone/cmd_vel              │  /drone/odometry   │
+│         ▼                              ▼                    │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              DDS Middleware (Fast DDS)                 │   │
+│  │         Same protocol used on real drones              │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**What HIL enables:**
+- **Test without hardware:** Validate navigation logic before deploying to real drones
+- **Reproducible scenarios:** Replay the same sensor data for debugging
+- **CI/CD integration:** Run automated HIL tests in GitHub Actions / GitLab CI
+- **Cost savings:** 1 developer machine simulates what would require a physical drone + test field
+
+**Current HIL implementation:**
+- `drone_bridge` auto-shutdown after 30s without messages — CI-safe simulation
+- `waypoint_planner` generates synthetic waypoints that feed into the pipeline
+- `telemetry_pub` publishes mock Odometry at 10 Hz, mimicking real IMU + GPS
 
 ---
 
@@ -485,6 +561,37 @@ without duplicating code:
                     │  Composite Actions       │
                     │  (setup, colcon, docker) │
                     └─────────────────────----─┘
+```
+
+### Kaniko vs Buildx
+
+This project's Dockerfile is designed to work with **both** container build tools:
+
+| Aspect | Buildx (GitHub Actions) | Kaniko (GitLab CI / Kubernetes) |
+|--------|--------------------------|----------------------------------|
+| **Runtime** | Requires Docker daemon | No daemon — builds image from scratch |
+| **Privileges** | Needs privileged mode (root) | Runs as non-root user |
+| **Security** | Suitable for isolated CI VMs | Required for shared K8s clusters |
+| **Caching** | `--cache-from` / `--cache-to` with registry | `--cache=true` with layer caching |
+| **Use case** | Public CI, developer laptops | Production K8s, defense/secure environments |
+
+**Why this matters for robotics:**
+- TII and other defense robotics labs use **Kaniko** because Kubernetes pods cannot run Docker-in-Docker
+- No root privileges = meets security compliance for classified environments
+- Same Dockerfile works with both tools — no code duplication
+- Harbor (on-prem registry) is the central artifact store for both paths
+
+Reference GitLab CI job using Kaniko:
+```yaml
+package:
+  stage: package
+  image: gcr.io/kaniko-project/executor:v1.14.0
+  script:
+    - /kaniko/executor
+      --context ${CI_PROJECT_DIR}
+      --dockerfile ${CI_PROJECT_DIR}/cicd/Dockerfile
+      --destination ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}
+      --cache=true
 ```
 
 ---
@@ -813,3 +920,79 @@ For C++ packages:
 2. Add `package.xml` and `CMakeLists.txt`
 3. Implement nodes in `src/`
 4. Add a reusable workflow call in `ci.yml` (optional)
+
+### Why GitHub Actions instead of GitLab CI for this project?
+
+This repository uses **GitHub Actions** for CI testing because the project is hosted on GitHub
+(public repo, free tier). However, the patterns demonstrated — shared templates, caching,
+matrix builds — are directly transferable to **GitLab CI**. I've included a reference
+`.gitlab-ci.yml` in this repo that mirrors the same pipeline using GitLab CI syntax,
+Kaniko for rootless builds, and Harbor registry integration. Both platforms share the
+same core concepts: stages, jobs, artifacts, and dependency graphs.
+
+### What is Kaniko and when would you use it?
+
+**Kaniko** builds Docker images without requiring a Docker daemon or root privileges.
+It's essential in **Kubernetes** environments where security policies forbid Docker-in-Docker.
+
+| Scenario | Tool |
+|----------|------|
+| GitHub Actions public CI | Buildx |
+| Kubernetes pods (defense/secure labs) | Kaniko |
+| Developer laptop | Buildx / Docker |
+| GitLab CI with Harbor registry | Kaniko |
+
+Kaniko reads the same `Dockerfile` as Buildx — no change needed. It builds the image
+from scratch and pushes directly to the **Harbor registry** (on-prem Docker registry).
+This is the exact pattern used in defense/robotics environments like TII.
+
+### What is Hardware-in-the-Loop (HIL)?
+
+HIL is a simulation technique where software runs on real hardware (or a simulation
+of it) with mock sensor data. The software "thinks" it's on a real drone, but sensors
+are simulated. Benefits:
+- **Test without hardware:** Validate navigation logic without a physical drone
+- **Reproducible:** Replay the same scenario for debugging
+- **CI-friendly:** Run HIL tests in automated pipelines
+- **Cost:** 1 laptop simulates what requires a drone + test field
+
+This project's `drone_bridge` (C++) and `waypoint_planner` (Python) implement a
+basic HIL setup — the C++ node subscribes to mock Odometry and validates
+cross-language DDS communication, as if receiving real drone telemetry.
+
+### Why Harbor Registry?
+
+**Harbor** is an open-source, on-premises Docker registry with:
+- **Vulnerability scanning** for container images
+- **Role-based access control** (RBAC)
+- **Image replication** between data centers
+- **Helm chart repository**
+
+In defense/robotics environments (like TII), Harbor replaces Docker Hub because:
+- No internet access allowed during missions
+- Security compliance requires private image storage
+- Images must be scanned before deployment to drones
+
+### How would you deploy this pipeline to a production Kubernetes cluster?
+
+1. **GitLab CI** (self-hosted) triggers on merge to `main`
+2. **Kaniko** builds the Docker image without root in an ephemeral K8s pod
+3. Image is pushed to **Harbor** registry (harbor.tii.ae/robotics/ros2-swarm:v1.0)
+4. **Helm chart** deploys the ROS 2 nodes to the K8s cluster
+5. For **edge deployment** (drones), `docker compose pull && docker compose up` pulls the same image
+6. **GitLab Runners** with GPU tags handle simulation and AI training workloads
+
+### How does this project align with the TII Swarm Team's stack?
+
+| TII Requirement | This Project |
+|-----------------|--------------|
+| ROS 2 (colcon, DDS) | ✅ C++ and Python nodes with cross-language DDS |
+| MCAP → Parquet → DuckDB ETL | ✅ Full pipeline implemented |
+| Shared CI templates (DRY) | ✅ GitHub Actions reusable workflows + `.gitlab-ci.yml` |
+| Three-level caching | ✅ ccache + Docker layers + pip |
+| Kaniko + Harbor | ✅ Kaniko-ready Dockerfile + Harbor pattern in docs |
+| Multi-architecture (amd64 + arm64) | ✅ Matrix builds for both architectures |
+| GPU runners support | ✅ Reference in `.gitlab-ci.yml` tags |
+| Dev Containers | ✅ `.devcontainer/devcontainer.json` included |
+| HIL simulation | ✅ `drone_bridge` + `waypoint_planner` mock HIL |
+| Non-root containers | ✅ `ros` user (UID 1001) in runtime image |
