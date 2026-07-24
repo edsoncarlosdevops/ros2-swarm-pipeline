@@ -71,7 +71,7 @@ COPY ros2_nodes/drone_bridge/ /ros2_ws/src/drone_bridge/
 # Full output for debugging — build errors are visible
 RUN . /opt/ros/jazzy/setup.sh && \
     cd /ros2_ws && \
-    colcon build --symlink-install --event-handlers console_direct+ \
+    colcon build --event-handlers console_direct+ \
       --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1 && \
     echo "=== Verifying build output ===" && \
     ls -la /ros2_ws/install/drone_bridge/lib/drone_bridge/ 2>/dev/null || \
