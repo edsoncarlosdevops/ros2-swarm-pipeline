@@ -52,6 +52,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     build-essential \
     cmake \
+    ros-jazzy-rclcpp \
+    ros-jazzy-nav-msgs \
+    ros-jazzy-geometry-msgs \
+    ros-jazzy-sensor-msgs \
+    ros-jazzy-std-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 # Layer cache: Build configuration changes infrequently
@@ -63,10 +68,16 @@ COPY ros2_nodes/drone_bridge/CMakeLists.txt \
 COPY ros2_nodes/drone_bridge/ /ros2_ws/src/drone_bridge/
 
 # Compile C++ nodes with colcon (ament_cmake build system)
+# Full output for debugging — build errors are visible
 RUN . /opt/ros/jazzy/setup.sh && \
     cd /ros2_ws && \
     colcon build --symlink-install --event-handlers console_direct+ \
-      --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -20
+      --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1 && \
+    echo "=== Verifying build output ===" && \
+    ls -la /ros2_ws/install/drone_bridge/lib/drone_bridge/ 2>/dev/null || \
+    (echo "ERROR: drone_bridge binary not found! Checking install tree:" && \
+     find /ros2_ws/install -name 'drone_bridge*' -type f 2>/dev/null || \
+     echo "No drone_bridge files found in install/")
 
 # --------------------------------------------------------------------------
 # Stage 3: Runtime - Minimal production image
