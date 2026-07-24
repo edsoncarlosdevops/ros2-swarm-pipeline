@@ -52,7 +52,10 @@ class DroneTelemetrySubscriber(Node):
         # fall back to local path for development without Docker.
         self.output_dir = os.environ.get(
             'TELEMETRY_DATA_DIR',
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'raw')
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                '..', 'data', 'raw'
+            )
         )
         if not os.path.isabs(self.output_dir):
             self.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.output_dir)
