@@ -44,6 +44,7 @@ services:
       - ros2_swarm
     environment:
       - ROS_DOMAIN_ID=42
+      - TELEMETRY_DATA_DIR=/ros2_ws/data/raw
 
   # --- Node 3: Planejador de waypoints - PYTHON ---
   waypoint_planner:

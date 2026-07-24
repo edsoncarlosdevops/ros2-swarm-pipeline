@@ -48,11 +48,14 @@ class DroneTelemetrySubscriber(Node):
         self.message_count = 0
         self.start_time = self.get_clock().now()
 
-        # Create output directory
-        self.output_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            '..', 'data', 'raw'
+        # Create output directory — use mounted Docker volume in production,
+        # fall back to local path for development without Docker.
+        self.output_dir = os.environ.get(
+            'TELEMETRY_DATA_DIR',
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'raw')
         )
+        if not os.path.isabs(self.output_dir):
+            self.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.get_logger().info('Subscriber started! Listening for telemetry...')
