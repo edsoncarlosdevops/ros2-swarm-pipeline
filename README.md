@@ -238,20 +238,20 @@ software components receive mock sensor data that mimics real drone hardware:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    HIL Simulation Setup                       │
-│                                                              │
-│  ┌──────────────────┐        ┌──────────────────────────┐   │
-│  │ waypoint_planner  │───────▶│  drone_bridge (C++)       │   │
-│  │ (mock navigation) │        │  Receives mock Odometry   │   │
-│  │ generates fake    │        │  as if from real drone    │   │
-│  │ GPS waypoints     │        │  sensors                  │   │
-│  └──────────────────┘        └──────────────────────────┘   │
+│                  HIL Simulation Setup                       │
+│                                                             │
+│  ┌──────────────────┐        ┌──────────────────────────-┐  │
+│  │ waypoint_planner │───────▶│  drone_bridge (C++)       │  │
+│  │ (mock navigation)│        │  Receives mock Odometry   │  │
+│  │ generates fake   │        │  as if from real drone    │  │
+│  │ GPS waypoints    │        │  sensors                  │  │
+│  └──────────────────┘        └──────────────────────────-┘  │
 │         │                              │                    │
 │         │  /drone/cmd_vel              │  /drone/odometry   │
 │         ▼                              ▼                    │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              DDS Middleware (Fast DDS)                 │   │
-│  │         Same protocol used on real drones              │   │
+│  │            DDS Middleware (Fast DDS)                 │   │
+│  │       Same protocol used on real drones              │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
