@@ -4,7 +4,7 @@
 # Main workflow that orchestrates reusable shared templates.
 # Each job delegates to a dedicated reusable workflow, following the
 # shared template pattern that Andrea Vergine described as a priority
-# for the Swarm Team DevOps platform at TII Abu Dhabi.
+# for the Swarm Team DevOps platform.
 #
 # Key design decisions:
 #   1. Shared templates (reusable workflows) for DRY CI/CD
