@@ -576,7 +576,7 @@ This project's Dockerfile is designed to work with **both** container build tool
 | **Use case** | Public CI, developer laptops | Production K8s, defense/secure environments |
 
 **Why this matters for robotics:**
-- TII and other defense robotics labs use **Kaniko** because Kubernetes pods cannot run Docker-in-Docker
+- Defense robotics labs use **Kaniko** because Kubernetes pods cannot run Docker-in-Docker
 - No root privileges = meets security compliance for classified environments
 - Same Dockerfile works with both tools — no code duplication
 - Harbor (on-prem registry) is the central artifact store for both paths
@@ -944,7 +944,7 @@ It's essential in **Kubernetes** environments where security policies forbid Doc
 
 Kaniko reads the same `Dockerfile` as Buildx — no change needed. It builds the image
 from scratch and pushes directly to the **Harbor registry** (on-prem Docker registry).
-This is the exact pattern used in defense/robotics environments like TII.
+This is the exact pattern used in defense/robotics environments.
 
 ### What is Hardware-in-the-Loop (HIL)?
 
@@ -968,7 +968,7 @@ cross-language DDS communication, as if receiving real drone telemetry.
 - **Image replication** between data centers
 - **Helm chart repository**
 
-In defense/robotics environments (like TII), Harbor replaces Docker Hub because:
+In defense/robotics environments, Harbor replaces Docker Hub because:
 - No internet access allowed during missions
 - Security compliance requires private image storage
 - Images must be scanned before deployment to drones
@@ -982,9 +982,9 @@ In defense/robotics environments (like TII), Harbor replaces Docker Hub because:
 5. For **edge deployment** (drones), `docker compose pull && docker compose up` pulls the same image
 6. **GitLab Runners** with GPU tags handle simulation and AI training workloads
 
-### How does this project align with the TII Swarm Team's stack?
+### How does this project align with a robotics team's stack?
 
-| TII Requirement | This Project |
+| Requirement | This Project |
 |-----------------|--------------|
 | ROS 2 (colcon, DDS) | ✅ C++ and Python nodes with cross-language DDS |
 | MCAP → Parquet → DuckDB ETL | ✅ Full pipeline implemented |
