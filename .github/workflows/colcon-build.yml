@@ -86,7 +86,7 @@ jobs:
           . install/setup.sh
           PKG_NAME=$(basename ${{ inputs.package-path }})
           echo "Package: $PKG_NAME"
-          ros2 run $PKG_NAME drone_bridge_node --help 2>&1 || \
+          ros2 run $PKG_NAME telemetry_sub_cpp --help 2>&1 || \
             echo "Binary verified successfully"
 
       - name: Verify cross-language message type compatibility

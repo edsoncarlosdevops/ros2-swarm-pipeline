@@ -32,7 +32,7 @@ class WaypointPlanner(Node):
     """
 
     def __init__(self):
-        super().__init__('waypoint_planner')
+        super().__init__('waypoint_planner_python')
 
         # === Waypoints pre-definidos ===
         self.waypoints = [

@@ -12,11 +12,11 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
-add_executable(drone_bridge_node
-  src/drone_bridge_node.cpp
+add_executable(telemetry_sub_cpp
+  src/telemetry_sub_cpp.cpp
 )
 
-ament_target_dependencies(drone_bridge_node
+ament_target_dependencies(telemetry_sub_cpp
   rclcpp
   nav_msgs
   geometry_msgs
@@ -25,7 +25,7 @@ ament_target_dependencies(drone_bridge_node
 )
 
 install(TARGETS
-  drone_bridge_node
+  telemetry_sub_cpp
   DESTINATION lib/${PROJECT_NAME}
 )
 

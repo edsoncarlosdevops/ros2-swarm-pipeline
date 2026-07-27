@@ -71,7 +71,7 @@ real-world technical requirements for multi-drone swarm operations.
 | **Auto-shutdown CI node** | C++ node detects missing publisher and shuts down gracefully after 30s, preventing CI hangs. |
 | **Kaniko-ready architecture** | Dockerfile designed for both Buildx (GitHub Actions) and Kaniko (GitLab CI/K8s) — secure, rootless builds. |
 | **Dev Containers** | Environment-as-code via `.devcontainer/devcontainer.json` — eliminates "works on my machine" with reproducible environments. |
-| **HIL-ready simulation** | `drone_bridge` + `waypoint_planner` mock Hardware-in-the-Loop: node receives simulated sensor data as if on real drone hardware. |
+| **HIL-ready simulation** | `telemetry_sub_cpp` + `waypoint_planner_python` mock Hardware-in-the-Loop: node receives simulated sensor data as if on real drone hardware. |
 
 ---
 
@@ -103,7 +103,7 @@ real-world technical requirements for multi-drone swarm operations.
   │                        ROS 2 Domain (ID: 42)                         │
   │                                                                      │
   │  ┌──────────────────-┐            ┌───────────────────────────────┐  │
-  │  │ telemetry_pub     │            │ telemetry_sub                 │  │
+  │  │ telemetry_pub_python     │            │ telemetry_sub_python                 │  │
   │  │ (Python, rclpy)   │─────────-─-│ (Python, rclpy)               │  │
   │  │ 10 Hz Odometry    │  /drone    │ Subscribes & logs             │  │
   │  │ publisher         │  /odometry │ Feeds into ETL pipeline       │  │
@@ -113,7 +113,7 @@ real-world technical requirements for multi-drone swarm operations.
   │         │                                                            │
   │         ▼                                                            │
   │  ┌─────────────────────────────────────────────────────────────-┐    │
-  │  │ drone_bridge (C++, rclcpp)                                   │    │
+  │  │ telemetry_sub_cpp (C++, rclcpp)                                   │    │
   │  │ Cross-language DDS: Python → C++                             │    │
   │  │ Auto-shutdown after 30s without messages                     │    │
   │  │ Health checks, status logging                                │    │
@@ -135,7 +135,7 @@ One of the key architectural decisions is demonstrating that ROS 2's DDS
 middleware is truly language-agnostic:
 
 ```
-Python Publisher (drone_telemetry_pub)  ──DDS──▶  C++ Subscriber (drone_bridge_node)
+Python Publisher (telemetry_pub_python)  ──DDS──▶  C++ Subscriber (telemetry_sub_cpp)
         │                                               │
         │  Topic: /drone/odometry                       │  "CROSS-LANGUAGE DDS OK!"
         │  Type: nav_msgs/Odometry                      │  "Python -> C++ via DDS"
@@ -241,7 +241,7 @@ software components receive mock sensor data that mimics real drone hardware:
 │                  HIL Simulation Setup                       │
 │                                                             │
 │  ┌──────────────────┐        ┌──────────────────────────-┐  │
-│  │ waypoint_planner │───────▶│  drone_bridge (C++)       │  │
+│  │ waypoint_planner │───────▶│  telemetry_sub_cpp (C++)       │  │
 │  │ (mock navigation)│        │  Receives mock Odometry   │  │
 │  │ generates fake   │        │  as if from real drone    │  │
 │  │ GPS waypoints    │        │  sensors                  │  │
@@ -263,9 +263,9 @@ software components receive mock sensor data that mimics real drone hardware:
 - **Cost savings:** 1 developer machine simulates what would require a physical drone + test field
 
 **Current HIL implementation:**
-- `drone_bridge` auto-shutdown after 30s without messages — CI-safe simulation
-- `waypoint_planner` generates synthetic waypoints that feed into the pipeline
-- `telemetry_pub` publishes mock Odometry at 10 Hz, mimicking real IMU + GPS
+- `telemetry_sub_cpp` auto-shutdown after 30s without messages — CI-safe simulation
+- `waypoint_planner_python` generates synthetic waypoints that feed into the pipeline
+- `telemetry_pub_python` publishes mock Odometry at 10 Hz, mimicking real IMU + GPS
 
 ---
 
@@ -297,7 +297,7 @@ ros2-swarm-pipeline/
 │       ├── package.xml                  # ROS 2 ament_cmake manifest
 │       ├── CMakeLists.txt               # Colcon build configuration
 │       └── src/
-│           └── drone_bridge_node.cpp    # C++ DDS subscriber with auto-shutdown
+│           └── telemetry_sub_cpp.cpp    # C++ DDS subscriber with auto-shutdown
 │
 ├── etl_pipeline/                        # Data engineering pipeline
 │   ├── requirements.txt                 # Python dependencies
@@ -445,7 +445,7 @@ If any assertion fails, the pipeline stops and reports the error.
 | **Trigger** | On lint completion |
 | **Runner** | ubuntu-latest (inside `ros:jazzy-ros-base` container) |
 | **Duration** | ~15 seconds (cold), ~5 seconds (ccache hit) |
-| **What it does** | Compiles `drone_bridge` with colcon, runs binary |
+| **What it does** | Compiles `drone_bridge` package (telemetry_sub_cpp) with colcon, runs binary |
 | **Cache** | ccache (/root/.ccache, 500MB max) |
 
 Steps:
@@ -455,7 +455,7 @@ Steps:
 4. Copy source to `/ros2_ws/src/drone_bridge`
 5. Run `colcon build --symlink-install` with Release mode
 6. Display ccache statistics (hits/misses/size)
-7. Run binary: `ros2 run drone_bridge drone_bridge_node`
+7. Run binary: `ros2 run drone_bridge telemetry_sub_cpp`
 8. Auto-shutdown after 30s without messages (CI-safe)
 9. Verify cross-language message types (nav_msgs, geometry_msgs, std_msgs)
 
@@ -470,9 +470,9 @@ Steps:
 | **What it does** | Builds Docker images with multi-stage caching |
 
 Three services are built (sequentially due to dependencies):
-- `build-node-pub`: `telemetry_pub` image
-- `build-node-sub`: `telemetry_sub` image (depends on pub)
-- `build-node-nav`: `waypoint_planner` image (depends on pub)
+- `build-node-pub`: `telemetry_pub_python` image
+- `build-node-sub`: `telemetry_sub_python` image (depends on pub)
+- `build-node-nav`: `waypoint_planner_python` image (depends on pub)
 
 Each build uses:
 - QEMU for cross-architecture emulation
@@ -615,9 +615,9 @@ pip install -e .
 ```
 
 This installs the `drone_telemetry` package with console_scripts:
-- `telemetry_pub` — Odometry publisher at 10 Hz
-- `telemetry_sub` — Subscriber with ETL integration
-- `waypoint_planner` — Waypoint navigation logic
+- `telemetry_pub_python` — Odometry publisher at 10 Hz
+- `telemetry_sub_python` — Subscriber with ETL integration
+- `waypoint_planner_python` — Waypoint navigation logic
 
 #### 2. Build C++ nodes
 
@@ -646,13 +646,13 @@ Open three terminals:
 
 ```bash
 # Terminal 1: Publisher
-ros2 run drone_telemetry telemetry_pub
+ros2 run drone_telemetry telemetry_pub_python
 
 # Terminal 2: Subscriber
-ros2 run drone_telemetry telemetry_sub
+ros2 run drone_telemetry telemetry_sub_python
 
 # Terminal 3: C++ bridge node
-ros2 run drone_bridge drone_bridge_node
+ros2 run drone_bridge telemetry_sub_cpp
 ```
 
 Expected output on Terminal 3 after first message:
@@ -705,10 +705,10 @@ docker compose logs -f
 docker compose logs drone_bridge
 
 # Expected output:
-# drone_bridge_cpp  | [INFO] [....] [drone_bridge_node]: === Drone Bridge Node (C++) ===
-# drone_bridge_cpp  | [INFO] [....] [drone_bridge_node]: Subscribed to: /drone/odometry
-# drone_bridge_cpp  | [INFO] [....] [drone_bridge_node]: CROSS-LANGUAGE DDS OK!
-# drone_bridge_cpp  | [INFO] [....] [drone_bridge_node]: First position: (50.00, 0.00, 10.00)
+# telemetry_sub_cpp  | [INFO] [....] [telemetry_sub_cpp]: === Telemetry Subscriber C++ (cross-lang proof) ===
+# telemetry_sub_cpp  | [INFO] [....] [telemetry_sub_cpp]: Subscribed to: /drone/odometry
+# telemetry_sub_cpp  | [INFO] [....] [telemetry_sub_cpp]: CROSS-LANGUAGE DDS OK!
+# telemetry_sub_cpp  | [INFO] [....] [telemetry_sub_cpp]: First position: (50.00, 0.00, 10.00)
 ```
 
 #### Verify data persistence
@@ -956,7 +956,7 @@ are simulated. Benefits:
 - **CI-friendly:** Run HIL tests in automated pipelines
 - **Cost:** 1 laptop simulates what requires a drone + test field
 
-This project's `drone_bridge` (C++) and `waypoint_planner` (Python) implement a
+This project's `telemetry_sub_cpp` (C++) and `waypoint_planner_python` (Python) implement a
 basic HIL setup — the C++ node subscribes to mock Odometry and validates
 cross-language DDS communication, as if receiving real drone telemetry.
 
@@ -994,5 +994,5 @@ In defense/robotics environments, Harbor replaces Docker Hub because:
 | Multi-architecture (amd64 + arm64) | ✅ Matrix builds for both architectures |
 | GPU runners support | ✅ Reference in `.gitlab-ci.yml` tags |
 | Dev Containers | ✅ `.devcontainer/devcontainer.json` included |
-| HIL simulation | ✅ `drone_bridge` + `waypoint_planner` mock HIL |
+| HIL simulation | ✅ `telemetry_sub_cpp` + `waypoint_planner_python` mock HIL |
 | Non-root containers | ✅ `ros` user (UID 1001) in runtime image |

@@ -3,11 +3,11 @@
 #
 # Simula uma frota de drones com nodes ROS 2 em Python E C++ se comunicando:
 #
-#   telemetry_pub (Python, 10Hz) ──/drone/odometry──> waypoint_planner (Python)
+#   telemetry_pub_python (Python, 10Hz) ──/drone/odometry──> waypoint_planner_python (Python)
 #       │                                                   │
 #       │                                                   └──/drone/cmd_vel──> (futuro)
 #       │
-#       └──/drone/odometry──> drone_bridge (C++)
+#       └──/drone/odometry──> telemetry_sub_cpp (C++)
 #                                     │
 #                                     └── Cross-language DDS: Python → C++
 #
@@ -17,25 +17,25 @@
 # ============================================================================
 
 services:
-  # --- Node 1: Publica posicao do drone (10Hz) - PYTHON ---
+  # --- Node 1: Publica posicao do drone (10Hz) - PYTHON (telemetry_pub_python) ---
   telemetry_pub:
     build:
       context: .
       dockerfile: cicd/Dockerfile
     container_name: drone_telemetry_pub
-    command: telemetry_pub
+    command: telemetry_pub_python
     networks:
       - ros2_swarm
     environment:
       - ROS_DOMAIN_ID=42
 
-  # --- Node 2: Assina /drone/odometry e salva dados para ETL - PYTHON ---
+  # --- Node 2: Assina /drone/odometry e salva dados para ETL - PYTHON (telemetry_sub_python) ---
   telemetry_sub:
     build:
       context: .
       dockerfile: cicd/Dockerfile
     container_name: drone_telemetry_sub
-    command: telemetry_sub
+    command: telemetry_sub_python
     depends_on:
       - telemetry_pub
     volumes:
@@ -46,13 +46,13 @@ services:
       - ROS_DOMAIN_ID=42
       - TELEMETRY_DATA_DIR=/ros2_ws/data/raw
 
-  # --- Node 3: Planejador de waypoints - PYTHON ---
+  # --- Node 3: Planejador de waypoints - PYTHON (waypoint_planner_python) ---
   waypoint_planner:
     build:
       context: .
       dockerfile: cicd/Dockerfile
-    container_name: waypoint_planner
-    command: waypoint_planner
+    container_name: waypoint_planner_python
+    command: waypoint_planner_python
     depends_on:
       - telemetry_pub
     networks:
@@ -60,14 +60,14 @@ services:
     environment:
       - ROS_DOMAIN_ID=42
 
-  # --- Node 4: C++ Bridge - COMUNICACAO CROSS-LANGUAGE ---
-  # Python publisher -> DDS (Fast DDS) -> C++ subscriber
+  # --- Node 4: Assinante C++ - PROVA CROSS-LANG (telemetry_sub_cpp) ---
+  # telemetry_pub_python -> DDS (Fast DDS) -> telemetry_sub_cpp
   drone_bridge:
     build:
       context: .
       dockerfile: cicd/Dockerfile
-    container_name: drone_bridge_cpp
-    command: ros2 run drone_bridge drone_bridge_node
+    container_name: telemetry_sub_cpp
+    command: ros2 run drone_bridge telemetry_sub_cpp
     depends_on:
       - telemetry_pub
     networks:

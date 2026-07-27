@@ -30,7 +30,7 @@ class DroneTelemetryPublisher(Node):
 
     def __init__(self):
         # Node name - must be unique in the ROS 2 network
-        super().__init__('drone_telemetry_publisher')
+        super().__init__('telemetry_pub_python')
 
         # === Publishers ===
         # Each publisher announces "I will publish data on this topic"

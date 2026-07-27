@@ -1,13 +1,13 @@
 /**
- * @file drone_bridge_node.cpp
+ * @file telemetry_sub_cpp.cpp
  * @brief C++ bridge node demonstrating cross-language DDS communication
  *
  * This node subscribes to /drone/odometry (nav_msgs/Odometry) published
- * by the Python drone_telemetry.telemetry.publisher node at 10 Hz.
+ * by the Python telemetry_pub_python node at 10 Hz.
  *
  * Cross-language communication flow:
  *
- *   Python Publisher (drone_telemetry_pub) --DDS--> C++ Subscriber (this node)
+ *   Python Publisher (telemetry_pub_python) --DDS--> C++ Subscriber (this node)
  *       |                                              |
  *       |  /drone/odometry (nav_msgs/Odometry)          | Logs and exposes
  *       |  @ 10 Hz via Fast DDS                       | telemetry data
@@ -31,11 +31,11 @@
 
 using namespace std::chrono_literals;
 
-class DroneBridgeNode : public rclcpp::Node
+class TelemetrySubCpp : public rclcpp::Node
 {
 public:
-  DroneBridgeNode()
-    : Node("drone_bridge_node"),
+  TelemetrySubCpp()
+    : Node("telemetry_sub_cpp"),
       message_count_(0),
       start_time_(this->now())
   {
@@ -43,13 +43,13 @@ public:
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
       "/drone/odometry",
       10,
-      std::bind(&DroneBridgeNode::odom_callback, this, std::placeholders::_1)
+      std::bind(&TelemetrySubCpp::odom_callback, this, std::placeholders::_1)
     );
 
     // Status timer prints health information every 5 seconds
     status_timer_ = this->create_wall_timer(
       5s,
-      std::bind(&DroneBridgeNode::status_callback, this)
+      std::bind(&TelemetrySubCpp::status_callback, this)
     );
 
     // Auto-shutdown timer: shuts down after 30s if no messages received.
@@ -57,10 +57,10 @@ public:
     // there is no publisher running in the same container.
     shutdown_timer_ = this->create_wall_timer(
       30s,
-      std::bind(&DroneBridgeNode::shutdown_callback, this)
+      std::bind(&TelemetrySubCpp::shutdown_callback, this)
     );
 
-    RCLCPP_INFO(this->get_logger(), "=== Drone Bridge Node (C++) ===");
+    RCLCPP_INFO(this->get_logger(), "=== Telemetry Subscriber C++ (cross-lang proof) ===");
     RCLCPP_INFO(this->get_logger(), "Subscribed to: /drone/odometry");
     RCLCPP_INFO(this->get_logger(), "Waiting for Python-published telemetry via DDS...");
   }
@@ -89,7 +89,7 @@ private:
     if (message_count_ % 100 == 1) {
       std::stringstream ss;
       ss << std::fixed << std::setprecision(2);
-      ss << "Bridge [" << message_count_ << "] "
+      ss << "Sub [" << message_count_ << "] "
          << "Pos: (" << pos.x << ", " << pos.y << ", " << pos.z << ") | "
          << "Vel: (" << vel.x << ", " << vel.y << ", " << vel.z << ")";
       RCLCPP_INFO(this->get_logger(), "%s", ss.str().c_str());
@@ -108,7 +108,7 @@ private:
       double rate = elapsed > 0 ? message_count_ / elapsed : 0;
       RCLCPP_INFO(
         this->get_logger(),
-        "Bridge health: %zu messages received @ ~%.1f Hz",
+        "Sub health: %zu messages received @ ~%.1f Hz",
         message_count_,
         rate
       );
@@ -142,10 +142,10 @@ private:
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<DroneBridgeNode>();
-  RCLCPP_INFO(node->get_logger(), "DroneBridgeNode spinning. Waiting for Python telemetry...");
+  auto node = std::make_shared<TelemetrySubCpp>();
+  RCLCPP_INFO(node->get_logger(), "TelemetrySubCpp spinning. Waiting for Python telemetry...");
   rclcpp::spin(node);
-  RCLCPP_INFO(node->get_logger(), "Shutting down DroneBridgeNode.");
+  RCLCPP_INFO(node->get_logger(), "Shutting down TelemetrySubCpp.");
   rclcpp::shutdown();
   return 0;
 }

@@ -32,7 +32,7 @@ class DroneTelemetrySubscriber(Node):
     """
 
     def __init__(self):
-        super().__init__('drone_telemetry_subscriber')
+        super().__init__('telemetry_sub_python')
 
         # === Subscribers ===
         self.odom_sub = self.create_subscription(
