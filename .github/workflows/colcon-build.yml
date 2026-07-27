@@ -94,7 +94,7 @@ jobs:
           . /opt/ros/${{ inputs.ros-distro }}/setup.sh
           echo "Verifying ROS 2 message packages for C++ interoperability..."
           for pkg in nav_msgs geometry_msgs std_msgs; do
-            if ros2 pkg list | grep -q "^$pkg$"; then
+            if [ -d "/opt/ros/$ROS_DISTRO/share/$pkg" ]; then
               echo "  ✓ $pkg — C++ headers and DDS types available"
             else
               echo "  ✗ $pkg — MISSING!"
