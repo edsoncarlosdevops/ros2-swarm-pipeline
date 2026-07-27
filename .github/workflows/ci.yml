@@ -146,16 +146,16 @@ jobs:
           docker compose ps
 
           echo "=== Publisher node logs (Python, 10Hz) ==="
-          docker compose logs drone_telemetry_pub --tail 5
+          docker compose logs telemetry_pub --tail 5
 
           echo "=== Subscriber node logs (Python, ETL) ==="
-          docker compose logs drone_telemetry_sub --tail 5
+          docker compose logs telemetry_sub --tail 5
 
           echo "=== C++ Subscriber node logs (telemetry_sub_cpp - cross-language proof) ==="
           docker compose logs drone_bridge --tail 5
 
           echo "=== Waypoint Planner node logs (Python, navigation) ==="
-          docker compose logs waypoint_planner_python --tail 5
+          docker compose logs waypoint_planner --tail 5
 
           docker compose down
 
