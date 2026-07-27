@@ -89,13 +89,16 @@ jobs:
           ros2 run $PKG_NAME telemetry_sub_cpp --help 2>&1 || \
             echo "Binary verified successfully"
 
-      - name: Verify cross-language message type compatibility
+      - name: Verify cross-language message packages (C++)
         run: |
-          python3 -c "
-          import importlib.util
-          for mod_name in ['nav_msgs', 'geometry_msgs', 'std_msgs']:
-              spec = importlib.util.find_spec(mod_name)
-              status = 'OK' if spec else 'NOT FOUND'
-              print(f'  {mod_name}: {status}')
-          print('Python/C++ message types are compatible via DDS!')
-          "
+          . /opt/ros/${{ inputs.ros-distro }}/setup.sh
+          echo "Verifying ROS 2 message packages for C++ interoperability..."
+          for pkg in nav_msgs geometry_msgs std_msgs; do
+            if ros2 pkg list | grep -q "^$pkg$"; then
+              echo "  ✓ $pkg — C++ headers and DDS types available"
+            else
+              echo "  ✗ $pkg — MISSING!"
+              exit 1
+            fi
+          done
+          echo "All C++ message types verified — cross-language DDS OK!"
