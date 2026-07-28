@@ -50,7 +50,7 @@ jobs:
       mcap-count: 500
 
   # --------------------------------------------------------------------------
-  # Stage 3: Analytics - DuckDB SQL queries on Parquet flight data
+  # Stage 3: Analytics - DuckDB SQL queries + Flight Report
   # --------------------------------------------------------------------------
   analyze:
     name: DuckDB Analytics
@@ -76,11 +76,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-data-
 
-      - name: Execute DuckDB analytical queries
-        run: python etl_pipeline/analyze_flight.py
+      - name: Execute DuckDB analytical queries and generate flight report
+        run: python etl_pipeline/analyze_flight.py --report
 
       - name: Validate analytics results with assertions
         run: python etl_pipeline/validate_analytics.py
+
+      - name: Upload flight report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-report
+          path: data/processed/flight_report.md
+          if-no-files-found: error
   # --------------------------------------------------------------------------
   # Stage 4: C++ Build - Compile ROS 2 C++ nodes with colcon
   # --------------------------------------------------------------------------

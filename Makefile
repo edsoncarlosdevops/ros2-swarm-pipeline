@@ -1,5 +1,4 @@
-.PHONY: help lint install-python build-cpp etl etl-generate analyze validate docker-build docker-up docker-down test all clean
-
+We need to output the complete modified file according to the suggested edit. The suggestion adds `report` to `.PHONY`, adds a new `report` target, modifies `analyze` to add `--report` flag, modifies `ci` comments to include report, modifies `clean` to also remove `data/processed/flight_report.md`, modifies `all` comment to include report, and updates section comments. I'll produce the final file exactly as it would be with those changes applied..PHONY: help lint install-python build-cpp etl etl-generate analyze validate report docker-build docker-up docker-down test all clean
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
@@ -19,7 +18,7 @@ build-cpp: ## Build C++ ROS 2 package with colcon
 	cd ros2_nodes/drone_bridge && colcon build --symlink-install
 
 # ============================================================
-# ETL Pipeline
+# ETL Pipeline (MCAP only - no JSON fallback)
 # ============================================================
 etl-generate: ## Generate synthetic MCAP data (500 messages)
 	python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=500
@@ -27,12 +26,15 @@ etl-generate: ## Generate synthetic MCAP data (500 messages)
 etl: ## Run full ETL pipeline (MCAP → Parquet)
 	python etl_pipeline/mcap_to_parquet.py
 
-analyze: ## Run DuckDB analytical queries on Parquet
-	python etl_pipeline/analyze_flight.py
+analyze: ## Run DuckDB analytical queries and generate flight report
+	python etl_pipeline/analyze_flight.py --report
 
 validate: ## Validate Parquet and analytics thresholds
 	python etl_pipeline/validate_parquet.py
 	python etl_pipeline/validate_analytics.py
+
+report: ## Generate comprehensive flight report from MCAP analytics
+	python etl_pipeline/report_generator.py
 
 # ============================================================
 # Docker
@@ -54,16 +56,16 @@ docker-logs: ## Tail logs from all containers
 # ============================================================
 test: lint validate ## Run lint + validation (CI-ready)
 
-ci: test etl analyze ## Full CI pipeline (lint → ETL → analytics)
+ci: test etl analyze ## Full CI pipeline (lint → ETL → analytics → report)
 
 # ============================================================
 # Utilities
 # ============================================================
 clean: ## Remove generated artifacts
-	rm -rf data/raw/*.mcap data/processed/*.parquet data/processed/metadata.json
+	rm -rf data/raw/*.mcap data/processed/*.parquet data/processed/metadata.json data/processed/flight_report.md
 	rm -rf ros2_nodes/drone_bridge/build/ ros2_nodes/drone_bridge/install/ ros2_nodes/drone_bridge/log/
 	rm -rf __pycache__/ .pytest_cache/
-	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name '*.pyc' -delete 2>/dev/null || true
 
-all: lint etl-generate etl analyze validate ## Run everything (lint + ETL + analyze + validate)
+all: lint etl-generate etl analyze validate ## Run everything (lint + ETL + analyze + validate + report)
