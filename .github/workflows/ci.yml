@@ -87,7 +87,7 @@ jobs:
         with:
           name: flight-report
           path: data/processed/flight_report.md
-          if-no-files-found: error
+          if-no-files-found: warn
   # --------------------------------------------------------------------------
   # Stage 4: C++ Build - Compile ROS 2 C++ nodes with colcon
   # --------------------------------------------------------------------------

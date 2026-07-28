@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""
-Comprehensive Flight Report Generator
-
-Generates a Markdown report from DuckDB analytical queries on Parquet flight data.
-Includes flight summary, altitude profile, speed distribution, acceleration metrics,
-and topic distribution.
-
-Usage:
-    python report_generator.py [parquet_path] [--output report.md]
-"""
+"""Flight Report Generator"""
 
 import sys
 from pathlib import Path
@@ -20,174 +11,97 @@ from queries.flight_queries import (
     speed_distribution,
     altitude_profile,
     altitude_stats,
-    acceleration_stats,
+    trajectory_sample,
     topic_distribution,
+    acceleration_stats,
     validate_parquet,
 )
 
 
 def generate_flight_report(parquet_path, output_path=None):
-    """Generate a comprehensive Markdown flight report from Parquet analytics."""
     if output_path is None:
         output_path = Path(parquet_path).parent / "flight_report.md"
 
-    # Run all analytical queries
+    # Fetch all data
     summary = flight_summary(parquet_path)
-    alt_stats = altitude_stats(parquet_path)
-    alt_profile = altitude_profile(parquet_path)
     spd_analysis = speed_analysis(parquet_path)
     spd_dist = speed_distribution(parquet_path)
+    alt_profile = altitude_profile(parquet_path)
+    alt_stats = altitude_stats(parquet_path)
     accel = acceleration_stats(parquet_path)
     topics = topic_distribution(parquet_path)
     validation = validate_parquet(parquet_path)
 
-    # Build the Markdown report
+    # Build report using .values[0] for DataFrames and dict keys for dicts
     report = f"""# Flight Telemetry Report
 
-**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 **Source:** {parquet_path}
-**Samples:** {validation["samples"]}
-**Total distance:** {validation["total_distance_m"]:.1f} m
+**Samples:** {validation['samples']}
+**Total distance:** {validation['total_distance_m']:.1f} m
 
 ---
-
 ## Flight Summary
-
 | Metric | Value |
 |--------|-------|
-| Total samples | {int(summary["total_samples"].values[0])} |
-| Total distance | {summary["total_distance_m"].values[0]:.1f} m |
-| Average speed | {summary["avg_speed_ms"].values[0]:.2f} m/s |
-| Median speed | {summary["median_speed_ms"].values[0]:.2f} m/s |
-| Max speed | {summary["max_speed_ms"].values[0]:.2f} m/s |
-| Average altitude | {summary["avg_altitude_m"].values[0]:.1f} m |
-| Min altitude | {summary["min_altitude_m"].values[0]:.1f} m |
-| Max altitude | {summary["max_altitude_m"].values[0]:.1f} m |
+| Total samples | {int(summary['total_samples'].values[0])} |
+| Total distance | {summary['total_distance_m'].values[0]:.1f} m |
+| Avg speed | {summary['avg_speed_ms'].values[0]:.2f} m/s |
+| Max speed | {summary['max_speed_ms'].values[0]:.2f} m/s |
+| Avg altitude | {summary['avg_altitude_m'].values[0]:.1f} m |
+| Min altitude | {summary['min_altitude_m'].values[0]:.1f} m |
+| Max altitude | {summary['max_altitude_m'].values[0]:.1f} m |
 
 ---
-
 ## Altitude Profile
-
-**Statistics:**
-
-| Metric | Value |
-|--------|-------|
-| Average altitude | {alt_stats["avg_altitude_m"].values[0]:.1f} m |
-| Min altitude | {alt_stats["min_altitude_m"].values[0]:.1f} m |
-| Max altitude | {alt_stats["max_altitude_m"].values[0]:.1f} m |
-| Range | {alt_stats["range_m"].values[0]:.1f} m |
-| Standard deviation | {alt_stats["stddev_m"].values[0]:.1f} m |
-
-**Distribution:**
-
-| Altitude Range | Samples | Avg Speed (m/s) | Avg Step (m) |
-|---------------|---------|-----------------|-------------|
+| Range | Count | Avg Speed | Avg Step |
+|-------|-------|-----------|----------|
 """
-
     for _, row in alt_profile.iterrows():
-        report += f"| {row["altitude_range"]} | {int(row["count"])} | {row["avg_speed"]:.2f} | {row["avg_step_m"]:.2f} |\n"
+        report += f"| {row['altitude_range']} | {int(row['count'])} | {row['avg_speed']:.2f} | {row['avg_step_m']:.2f} |\n"
 
     report += f"""
 ---
-
 ## Speed Analysis
-
-**Statistics:**
-
-| Metric | Value |
-|--------|-------|
-| Average speed | {spd_analysis["avg_speed_ms"].values[0]:.2f} m/s |
-| Median speed | {spd_analysis["median_speed_ms"].values[0]:.2f} m/s |
-| P95 speed | {spd_analysis["p95_speed_ms"].values[0]:.2f} m/s |
-| Max speed | {spd_analysis["max_speed_ms"].values[0]:.2f} m/s |
-
-**Distribution:**
-
-| Speed Range | Samples | Percentage |
-|------------|---------|------------|
+| Speed Range | Count | Pct |
+|------------|-------|-----|
 """
-
     for _, row in spd_dist.iterrows():
-        report += f"| {row["speed_range"]} | {int(row["count"])} | {row["pct"]}% |\n"
+        report += f"| {row['speed_range']} | {int(row['count'])} | {row['pct']}% |\n"
 
     report += f"""
 ---
-
-## Acceleration Metrics
-
-| Metric | Value |
-|--------|-------|
-| Average X acceleration | {accel["avg_ax"].values[0]:.3f} m/s2 |
-| Average Y acceleration | {accel["avg_ay"].values[0]:.3f} m/s2 |
-| Average Z acceleration | {accel["avg_az"].values[0]:.3f} m/s2 |
-| Max acceleration | {accel["max_accel"].values[0]:.3f} m/s2 |
-| Average acceleration | {accel["avg_accel"].values[0]:.3f} m/s2 |
+## Acceleration
+| Avg X | Avg Y | Avg Z | Max |
+|-------|-------|-------|-----|
+| {accel['avg_ax'].values[0]:.3f} m/s² | {accel['avg_ay'].values[0]:.3f} m/s² | {accel['avg_az'].values[0]:.3f} m/s² | {accel['max_accel'].values[0]:.3f} m/s² |
 
 ---
-
 ## Topic Distribution
-
-| Topic | Message Type | Samples | Percentage |
-|-------|--------------|--------|------------|
+| Topic | Type | Count | Pct |
+|-------|------|-------|-----|
 """
-
     for _, row in topics.iterrows():
-        report += f"| {row["topic"]} | {row["msg_type"]} | {int(row["count"])} | {row["pct"]}% |\n"
+        report += f"| {row['topic']} | {row['msg_type']} | {int(row['count'])} | {row['pct']}% |\n"
 
-    report += f"""
----
+    report += "\n---\n*Generated by ROS 2 Swarm Pipeline*\n"
 
-## Technical Observations
-
-1. **Data Pipeline:** All processing is exclusively MCAP (CDR ROS2) - no JSON fallback
-2. **Compression:** MCAP raw data is {validation["total_distance_m"]:.1f}m over {validation["samples"]} samples
-3. **Average speed:** {validation["avg_speed_ms"]:.2f} m/s - {spd_analysis["median_speed_ms"].values[0]:.2f} m/s median
-4. **Altitude range:** {alt_stats["range_m"].values[0]:.1f} m - from {alt_stats["min_altitude_m"].values[0]:.1f}m to {alt_stats["max_altitude_m"].values[0]:.1f}m
-5. **Acceleration:** Max {accel["max_accel"].values[0]:.3f} m/s2, average {accel["avg_accel"].values[0]:.3f} m/s2
-
----
-
-*Report generated by ROS 2 Swarm Pipeline - MCAP -> Parquet -> DuckDB Analytics*
-"""
-
-    # Save to file
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         f.write(report)
 
     print(f"[REPORT] Generated: {output_path}")
-    print(f"[REPORT] Sections: Summary, Altitude, Speed, Acceleration, Topics, Observations")
-
     return report
 
 
 def main():
-    """Command-line entry point for standalone report generation."""
     try:
         parquet_path = get_parquet_path()
     except FileNotFoundError as e:
         print(f"[ERROR] {e}")
-        print("  Run first: python3 etl_pipeline/mcap_to_parquet.py")
         sys.exit(1)
 
     output_path = Path(parquet_path).parent / "flight_report.md"
-
-    # Parse arguments
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        if args[i] == "--output" and i + 1 < len(args):
-            output_path = args[i + 1]
-            i += 2
-        elif not args[i].startswith("--"):
-            parquet_path = args[i]
-            i += 1
-        else:
-            i += 1
-
-    print(f"[REPORT] Source: {parquet_path}")
-    print(f"[REPORT] Output: {output_path}")
-
     generate_flight_report(parquet_path, output_path)
     return 0
 
