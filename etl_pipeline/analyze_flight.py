@@ -2,10 +2,11 @@
 """
 Flight Data Analyzer - DuckDB Queries on Parquet
 
-Uses shared queries from the queries/ module.
+Uses shared queries from the queries/ module and generates a
+comprehensive Markdown flight report.
 
 Usage:
-    python analyze_flight.py [--query <query_name>]
+    python analyze_flight.py [--query <query_name>] [--report]
 
 Queries:
     summary     - Flight summary statistics
@@ -13,6 +14,9 @@ Queries:
     speed       - Speed distribution & analysis
     altitude    - Altitude profile
     all         - Run all queries (default)
+
+Options:
+    --report    - Generate a markdown flight report after analysis
 """
 
 import sys
@@ -26,6 +30,7 @@ from queries.flight_queries import (
     altitude_stats,
     trajectory_sample,
 )
+from report_generator import generate_flight_report
 
 
 def print_result(title, df):
@@ -49,6 +54,9 @@ def main():
         "altitude": ("ALTITUDE PROFILE", altitude_profile),
     }
 
+    # Check for --report flag
+    generate_report = "--report" in sys.argv
+
     if len(sys.argv) > 2 and sys.argv[1] == "--query":
         qname = sys.argv[2]
         if qname == "all":
@@ -63,6 +71,15 @@ def main():
     else:
         for name, (title, fn) in queries.items():
             print_result(title, fn(parquet_path))
+
+    # Generate comprehensive flight report if requested
+    if generate_report:
+        print("\n" + "=" * 60)
+        print("  Generating Flight Report...")
+        report_path = Path(parquet_path).parent / "flight_report.md"
+        generate_flight_report(parquet_path, report_path)
+        print(f"\n  Report saved to: {report_path}")
+        print("=" * 60)
 
 
 if __name__ == "__main__":
