@@ -1,4 +1,4 @@
 """
-Modulo de navegacao do drone.
-Waypoint planner: calcula trajetoria baseado na posicao atual
+Drone navigation module.
+Waypoint planner: calculates trajectory based on current position
 """

@@ -25,7 +25,7 @@ services:
   telemetry_pub:
     build:
       context: .
-      dockerfile: cicd/Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: drone_telemetry_pub
     command: telemetry_pub_python
     networks:
@@ -37,7 +37,7 @@ services:
   telemetry_sub:
     build:
       context: .
-      dockerfile: cicd/Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: drone_telemetry_sub
     command: telemetry_sub_python
     depends_on:
@@ -54,7 +54,7 @@ services:
   waypoint_planner:
     build:
       context: .
-      dockerfile: cicd/Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: waypoint_planner_python
     command: waypoint_planner_python
     depends_on:
@@ -69,7 +69,7 @@ services:
   drone_bridge:
     build:
       context: .
-      dockerfile: cicd/Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: telemetry_sub_cpp
     command: ros2 run drone_bridge telemetry_sub_cpp
     depends_on:

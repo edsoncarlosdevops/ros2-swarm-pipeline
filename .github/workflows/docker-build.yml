@@ -21,7 +21,7 @@ on:
         description: Path to the Dockerfile
         required: false
         type: string
-        default: cicd/Dockerfile
+        default: docker/Dockerfile
       context:
         description: Docker build context directory
         required: false

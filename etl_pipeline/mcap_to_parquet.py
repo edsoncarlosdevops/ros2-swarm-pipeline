@@ -4,8 +4,8 @@ MCAP to Parquet ETL Pipeline with DuckDB
 
 Pipeline: MCAP (ROS 2 CDR) -> Parquet -> DuckDB Analytics
 
-Gera MCAP com encoding CDR ROS2 real (ros2msg), usando mcap_ros2.writer
-com msgdef completo de nav_msgs/Odometry + todos os sub-tipos.
+Generates MCAP with real CDR ROS2 encoding (ros2msg), using mcap_ros2.writer
+with full msgdef for nav_msgs/Odometry + all sub-types.
 """
 
 import json
@@ -43,7 +43,7 @@ print(f"  ROS2:    {'OK' if ROS2_AVAILABLE else 'NO'}")
 def extract_mcap(raw_path):
     """
     Extract telemetry data from MCAP files.
-    Supports both real CDR ROS2 (ros2msg) and JSON encoding.
+    Supports CDR ROS2 (ros2msg) encoding.
     """
     if not MCAP_AVAILABLE:
         raise RuntimeError("MCAP not installed. Run: pip install mcap-ros2-support")
@@ -61,7 +61,7 @@ def extract_mcap(raw_path):
     types_found = set()
 
     with open(path, "rb") as f:
-        # Primeiro, descobre o encoding do schema
+        # First, discover the schema encoding
         reader = make_reader(f)
         schema_sample = None
         for s, c, m in reader.iter_messages():
@@ -73,7 +73,7 @@ def extract_mcap(raw_path):
         is_ros2_cdr = (encoding == "ros2msg")
 
         if is_ros2_cdr and ROS2_AVAILABLE:
-            # Estratégia 1: CDR ROS2 real -> usa DecoderFactory
+            # Strategy 1: Real CDR ROS2 -> use DecoderFactory
             print(f"[EXTRACT] Encoding: ros2msg (CDR ROS2 real)")
             reader = make_reader(f, decoder_factories=[DecoderFactory()])
             for schema, channel, message, ros_msg in reader.iter_decoded_messages():
@@ -91,7 +91,7 @@ def extract_mcap(raw_path):
                 _extract_ros2_fields(ros_msg, msg_type, entry)
                 records.append(entry)
         else:
-            # Estratégia 2: JSON encoding (MCAP sintético ou outros)
+            # Strategy 2: JSON encoding (synthetic MCAP or others)
             print(f"[EXTRACT] Encoding: {encoding} (JSON/text)")
             reader = make_reader(f)
             for schema, channel, message in reader.iter_messages():
@@ -127,7 +127,7 @@ def extract_mcap(raw_path):
 
 
 def _extract_ros2_fields(msg, msg_type, entry):
-    """Extrai campos de uma mensagem ROS2 decodificada"""
+    """Extract fields from a decoded ROS2 message"""
     if msg_type == "nav_msgs/Odometry":
         p = msg.pose.pose.position
         t = msg.twist.twist.linear
@@ -156,7 +156,7 @@ def _extract_ros2_fields(msg, msg_type, entry):
         entry["longitude"] = msg.longitude
         entry["altitude"] = msg.altitude
     else:
-        # Fallback genérico
+        # Generic fallback
         for field in ["x", "y", "z"]:
             if hasattr(msg, field):
                 entry[field] = round(getattr(msg, field), 3)
@@ -216,7 +216,7 @@ def load_parquet(data, parquet_path):
     base_dir = parquet_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[LOAD] Escrevendo Parquet...")
+    print(f"\n[LOAD] Writing Parquet...")
 
     con = duckdb.connect()
     df = pd.DataFrame(data)
@@ -225,7 +225,7 @@ def load_parquet(data, parquet_path):
 
     con.execute(f"COPY flight TO '{parquet_path}' (FORMAT PARQUET, CODEC 'ZSTD')")
     size = parquet_path.stat().st_size
-    print(f"[LOAD] Principal: {parquet_path} ({size/1024:.1f} KB, Zstd)")
+    print(f"[LOAD] Main: {parquet_path} ({size/1024:.1f} KB, Zstd)")
 
     if "z" in df.columns:
         for name, cond in [
@@ -259,7 +259,7 @@ def load_parquet(data, parquet_path):
 
 
 def analyze(parquet_path):
-    """Analytics com DuckDB no Parquet usando queries compartilhadas"""
+    """Analytics with DuckDB on Parquet using shared queries"""
     from queries.flight_queries import (
         flight_summary,
         speed_distribution,
@@ -268,7 +268,7 @@ def analyze(parquet_path):
         topic_distribution,
     )
 
-    print(f"\n[ANALYZE] DuckDB SQL em: {parquet_path}")
+    print(f"\n[ANALYZE] DuckDB SQL on: {parquet_path}")
 
     print("\n=== FLIGHT SUMMARY ===")
     print(flight_summary(str(parquet_path)).to_string(index=False))
@@ -296,10 +296,10 @@ def generate_sample_mcap(path, num_records=500):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[SAMPLE] Gerando MCAP CDR ROS2 real: {path}")
+    print(f"\n[SAMPLE] Generating real CDR ROS2 MCAP: {path}")
 
-    # --- Msgdef completo com TODOS os tipos aninhados ---
-    # O formato usa '===' como separador e 'MSG: pkg/Type' para cada tipo
+    # --- Full msgdef with ALL nested types ---
+    # Format uses '===' as separator and 'MSG: pkg/Type' for each type
     full_msgdef = """MSG: builtin_interfaces/Time
 int32 sec
 uint32 nanosec
@@ -367,7 +367,7 @@ geometry_msgs/TwistWithCovariance twist"""
 
     writer = Writer(str(path))
 
-    # Registra o schema Odometry (que internamente registra todos os sub-tipos)
+    # Register the Odometry schema (which internally registers all sub-types)
     odom_schema = writer.register_msgdef("nav_msgs/Odometry", full_msgdef)
 
     radius, speed = 50.0, 5.0
@@ -421,7 +421,7 @@ geometry_msgs/TwistWithCovariance twist"""
     print(f"[SAMPLE] Size: {size/1024:.1f} KB")
 
     # Verifica se o decoder consegue ler
-    print(f"\n[SAMPLE] Verificando leitura com DecoderFactory...")
+    print(f"\n[SAMPLE] Verifying read with DecoderFactory...")
     from mcap.reader import make_reader
     from mcap_ros2.decoder import DecoderFactory
 
@@ -440,11 +440,11 @@ geometry_msgs/TwistWithCovariance twist"""
 
 
 def generate_sample_json(path, num_records=500):
-    """Gera JSON de amostra (retrocompatibilidade)"""
+    """Generate sample JSON (backwards compatibility)"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[SAMPLE] Gerando JSON: {path}")
+    print(f"\n[SAMPLE] Generating JSON: {path}")
     radius, speed = 50.0, 5.0
     ang = speed / radius
     start = time.time()
@@ -504,11 +504,11 @@ def main():
         if "--generate-mcap" in args:
             mcap_path = raw_dir / "sample_telemetry.mcap"
             generate_sample_mcap(mcap_path, num)
-            print("\n  Rode sem flags para processar este MCAP.")
+            print("\n  Run without flags to process this MCAP.")
         else:
             json_path = raw_dir / "sample_telemetry.json"
             generate_sample_json(json_path, num)
-            print("\n  Rode sem flags para processar este JSON.")
+            print("\n  Run without flags to process this JSON.")
 
         return 0
 
@@ -516,7 +516,7 @@ def main():
     if "--list" in args:
         for label, ext in [("MCAP", "*.mcap"), ("JSON", "*.json")]:
             files = sorted(raw_dir.rglob(ext))
-            print(f"\n{label} em {raw_dir}:")
+            print(f"\n{label} in {raw_dir}:")
             for f in files:
                 print(f"  {f} ({f.stat().st_size/1024:.1f} KB)")
         return 0
@@ -528,7 +528,7 @@ def main():
         print(f"[DRY RUN] Output: {processed_dir}/flight_data.parquet")
         return 0
 
-    # --- Pipeline principal ---
+    # --- Main pipeline ---
     mcap_files = find_mcap_files(raw_dir)
     json_files = sorted(raw_dir.glob("*.json"))
 

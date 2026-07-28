@@ -101,7 +101,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       service-name: "telemetry_pub_python"
-      dockerfile: "cicd/Dockerfile"
+      dockerfile: "docker/Dockerfile"
       context: "."
 
   build-telemetry-sub-python:
@@ -110,7 +110,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       service-name: "telemetry_sub_python"
-      dockerfile: "cicd/Dockerfile"
+      dockerfile: "docker/Dockerfile"
       context: "."
 
   build-waypoint-planner-python:
@@ -119,7 +119,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       service-name: "waypoint_planner_python"
-      dockerfile: "cicd/Dockerfile"
+      dockerfile: "docker/Dockerfile"
       context: "."
 
   # --------------------------------------------------------------------------

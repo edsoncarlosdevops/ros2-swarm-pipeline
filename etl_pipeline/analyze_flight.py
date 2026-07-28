@@ -2,7 +2,7 @@
 """
 Flight Data Analyzer - DuckDB Queries on Parquet
 
-Usa as queries compartilhadas do modulo queries/.
+Uses shared queries from the queries/ module.
 
 Usage:
     python analyze_flight.py [--query <query_name>]
@@ -38,8 +38,8 @@ def main():
     try:
         parquet_path = get_parquet_path()
     except FileNotFoundError as e:
-        print(f"[ERRO] {e}")
-        print("  Rode primeiro: python3 etl_pipeline/mcap_to_parquet.py")
+        print(f"[ERROR] {e}")
+        print("  Run first: python3 etl_pipeline/mcap_to_parquet.py")
         sys.exit(1)
 
     queries = {

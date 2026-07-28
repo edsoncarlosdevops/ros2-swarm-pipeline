@@ -83,7 +83,7 @@ real-world technical requirements for multi-drone swarm operations.
 | **C++ ROS 2 (rclcpp)** | `ros2_nodes/drone_bridge/` | Colcon build, ament_cmake, DDS subscriber with health checks |
 | **Cross-language DDS** | Python pub + C++ sub | `/drone/odometry` topic shared between rclpy and rclcpp via Fast DDS |
 | **Data Engineering** | `etl_pipeline/` | MCAP (CDR ROS2) → Parquet (columnar) → DuckDB (SQL analytics) |
-| **Docker** | `cicd/Dockerfile` | Multi-stage build, layer caching, HEALTHCHECK, non-root user |
+| **Docker** | `docker/Dockerfile` | Multi-stage build, layer caching, HEALTHCHECK, non-root user |
 | **GitHub Actions** | `.github/workflows/` | Reusable workflows, matrix builds, dependency graph, caching |
 | **GitLab CI** | `.gitlab-ci.yml` | Reference pipeline with Kaniko, heterogeneous runners, Harbor registry |
 | **Composite Actions** | `.github/actions/` | Step-level templates for setup-python, colcon-build, docker-build |
@@ -287,11 +287,8 @@ ros2-swarm-pipeline/
 │   │       │   ├── publisher.py         # Odometry publisher @ 10 Hz
 │   │       │   └── subscriber.py        # Subscriber + ETL integration
 │   │       ├── navigation/
-│   │       │   ├── __init__.py
-│   │       │   └── waypoint_planner.py  # Waypoint navigation
-│   │       └── bag/
 │   │           ├── __init__.py
-│   │           └── recorder.py          # MCAP bag recording
+│   │           └── waypoint_planner.py  # Waypoint navigation
 │   │
 │   └── drone_bridge/                    # C++ package (rclcpp)
 │       ├── package.xml                  # ROS 2 ament_cmake manifest
@@ -309,7 +306,7 @@ ros2-swarm-pipeline/
 │       ├── __init__.py
 │       └── flight_queries.py            # Reusable SQL query templates
 │
-├── cicd/                                # CI/CD infrastructure
+├── docker/                                # Docker images + entrypoint
 │   ├── Dockerfile                       # Multi-stage build (Python + C++)
 │   └── entrypoint.sh                    # Container entrypoint (ROS 2 + colcon)
 │
@@ -589,7 +586,7 @@ package:
   script:
     - /kaniko/executor
       --context ${CI_PROJECT_DIR}
-      --dockerfile ${CI_PROJECT_DIR}/cicd/Dockerfile
+      --dockerfile ${CI_PROJECT_DIR}/docker/Dockerfile
       --destination ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}
       --cache=true
 ```

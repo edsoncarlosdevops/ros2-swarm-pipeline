@@ -102,7 +102,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     rm -rf ~/.cache/pip /tmp/requirements.txt
 
 # Container entrypoint (sources ROS 2 and colcon workspace)
-COPY cicd/entrypoint.sh /entrypoint.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Python ROS 2 packages (pre-installed in builder-python stage)

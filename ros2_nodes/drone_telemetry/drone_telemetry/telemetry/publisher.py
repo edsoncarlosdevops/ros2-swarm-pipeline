@@ -6,7 +6,7 @@ Simulates a drone publishing telemetry data (position, velocity, altitude)
 to the ROS 2 network. This is exactly how real drones in a Swarm team
 publish their sensor data for other nodes to consume.
 
-Conceitos demonstrados:
+Concepts demonstrated:
   - ROS 2 Node lifecycle (init, spin, destroy)
   - Publisher pattern (talker)
   - Message types (Odometry)
