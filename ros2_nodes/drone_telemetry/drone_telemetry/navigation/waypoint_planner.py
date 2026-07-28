@@ -2,12 +2,12 @@
 """
 Waypoint Planner - ROS 2 Node
 
-Assina /drone/odometry e publica comandos de navegacao em /drone/cmd_vel.
-Simula um node de navegacao que calcula o proximo waypoint baseado na
-posicao atual do drone.
+Subscribes to /drone/odometry and publishes navigation commands on /drone/cmd_vel.
+Simulates a navigation node that calculates the next waypoint based on the
+drone's current position.
 
-Fluxo:
-  telemetry_pub (odometry) --> waypoint_planner (cmd_vel) --> telemetry_pub (recebe comando)
+Flow:
+  telemetry_pub (odometry) -> waypoint_planner (cmd_vel) -> telemetry_pub (receives command)
 
 Conceitos:
   - ROS 2 Subscriber (recebe odometry)

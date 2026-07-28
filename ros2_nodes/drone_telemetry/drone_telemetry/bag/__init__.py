@@ -1,4 +1,4 @@
 """
-Modulo de gravacao de dados do drone.
-Recorder: grava topicos ROS 2 em arquivos MCAP
+Drone data recording module.
+Recorder: records ROS 2 topics to MCAP files
 """

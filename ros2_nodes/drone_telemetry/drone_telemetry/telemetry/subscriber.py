@@ -1,38 +1,69 @@
 #!/usr/bin/env python3
 """
-Drone Telemetry Subscriber - ROS 2 Node
+Drone Telemetry Subscriber - ROS 2 Node (MCAP Recorder)
 
-Subscribes to drone telemetry data and processes it.
-In a Swarm team, subscribers are used by:
-  - Control team: receives position, sends motor commands
-  - Navigation team: receives data, plans routes
-  - Ground station: logs data for post-mission analysis
+Subscribes to drone telemetry data and records it in MCAP format
+(ROS 2 native bag format with CDR binary encoding).
 
-Conceitos demonstrados:
+This is the EXTRACT step of the ETL pipeline:
+  MCAP (CDR ROS2) → Parquet → DuckDB Analytics
+
+Usage:
+  ros2 run drone_telemetry telemetry_sub_python
+
+  # Or with Docker:
+  docker compose up telemetry_sub
+
+Key concepts demonstrated:
   - ROS 2 Subscriber pattern (listener)
+  - rosbag2_py SequentialWriter (MCAP recording)
   - Callback functions (event-driven)
-  - Data logging for ETL pipeline
+  - Data pipeline integration (feeds into mcap_to_parquet.py)
 """
 
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-import json
+from rosbag2_py import SequentialWriter, StorageOptions, RecordOptions
+from pathlib import Path
 import os
-from datetime import datetime
+import signal
+import sys
 
 
 class DroneTelemetrySubscriber(Node):
     """
-    Listens to drone telemetry and saves data for analysis.
+    Listens to drone telemetry and records directly to MCAP format.
 
-    This is the first step of the ETL pipeline:
-    - EXTRACT: receive ROS 2 messages
-    - Later we TRANSFORM and LOAD into Parquet/DuckDB
+    This feeds the ETL pipeline with native ROS 2 bag files.
+    No intermediate JSON — data goes straight from DDS to MCAP to Parquet.
     """
 
     def __init__(self):
         super().__init__('telemetry_sub_python')
+
+        # === MCAP Output Directory ===
+        # Use mounted Docker volume in production,
+        # fall back to local path for development without Docker.
+        self.output_dir = Path(os.environ.get(
+            'TELEMETRY_DATA_DIR',
+            str(Path(__file__).parent.parent.parent / 'data' / 'raw')
+        )).resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # === rosbag2 MCAP Writer ===
+        bag_path = str(self.output_dir / 'flight_mission')
+        storage_options = StorageOptions(
+            uri=bag_path,
+            storage_id='mcap'  # ← MCAP format (ROS 2 native)
+        )
+        record_options = RecordOptions()
+        record_options.record_topics = [
+            '/drone/odometry',
+        ]
+
+        self.writer = SequentialWriter()
+        self.writer.open(storage_options, record_options)
 
         # === Subscribers ===
         self.odom_sub = self.create_subscription(
@@ -42,83 +73,66 @@ class DroneTelemetrySubscriber(Node):
             10
         )
 
-        # === Data storage for ETL ===
-        self.telemetry_data = []
-        self.max_samples = 1000
+        # === State ===
         self.message_count = 0
         self.start_time = self.get_clock().now()
 
-        # Create output directory — use mounted Docker volume in production,
-        # fall back to local path for development without Docker.
-        self.output_dir = os.environ.get(
-            'TELEMETRY_DATA_DIR',
-            os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                '..', 'data', 'raw'
-            )
-        )
-        if not os.path.isabs(self.output_dir):
-            self.output_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                self.output_dir
-            )
-        os.makedirs(self.output_dir, exist_ok=True)
-
-        self.get_logger().info('Subscriber started! Listening for telemetry...')
+        self.get_logger().info(f'MCAP recording to: {bag_path}')
+        self.get_logger().info('Subscribed to /drone/odometry')
+        self.get_logger().info('Recording in MCAP (CDR ROS2) — ready for ETL pipeline')
 
     def odom_callback(self, msg):
         """Called EVERY TIME a message arrives on /drone/odometry."""
         self.message_count += 1
 
-        data = {
-            'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9,
-            'x': msg.pose.pose.position.x,
-            'y': msg.pose.pose.position.y,
-            'z': msg.pose.pose.position.z,
-            'vx': msg.twist.twist.linear.x,
-            'vy': msg.twist.twist.linear.y,
-            'vz': msg.twist.twist.linear.z,
-        }
+        # Write directly to MCAP (binary CDR ROS2 format)
+        self.writer.write(
+            '/drone/odometry',
+            msg,
+            self.get_clock().now().to_msg()
+        )
 
-        self.telemetry_data.append(data)
-
-        if len(self.telemetry_data) > self.max_samples:
-            self.telemetry_data.pop(0)
-
+        # Log progress every 100 messages
         if self.message_count % 100 == 0:
             elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
             self.get_logger().info(
-                f'Received {self.message_count} msgs in {elapsed:.1f}s | '
-                f'Pos: ({data["x"]:.1f}, {data["y"]:.1f}, {data["z"]:.1f})'
+                f'Recorded {self.message_count} msgs in {elapsed:.1f}s | '
+                f'Pos: ({msg.pose.pose.position.x:.1f}, '
+                f'{msg.pose.pose.position.y:.1f}, '
+                f'{msg.pose.pose.position.z:.1f})'
             )
 
-    def save_data(self):
-        """Save collected data to JSON (pre-ETL)."""
-        if not self.telemetry_data:
-            self.get_logger().warn('No data to save')
-            return
-
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'drone_telemetry_{timestamp}.json'
-        filepath = os.path.join(self.output_dir, filename)
-
-        with open(filepath, 'w') as f:
-            json.dump(self.telemetry_data, f, indent=2)
-
-        self.get_logger().info(f'Saved {len(self.telemetry_data)} samples to {filepath}')
-        return filepath
+    def close_writer(self):
+        """Close MCAP writer gracefully."""
+        if hasattr(self, 'writer') and self.writer:
+            self.get_logger().info(
+                f'Closing MCAP writer ({self.message_count} total messages recorded)'
+            )
+            del self.writer
+            self.writer = None
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = DroneTelemetrySubscriber()
 
+    def shutdown(sig, frame):
+        """Graceful shutdown: close MCAP writer before exiting."""
+        node.get_logger().info('Shutdown signal received, closing MCAP writer...')
+        node.close_writer()
+        node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.save_data()
+        node.close_writer()
         node.destroy_node()
         rclpy.shutdown()
 

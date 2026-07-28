@@ -36,14 +36,14 @@ except ImportError:
         pass
 
 print(f"  DuckDB:  {duckdb.__version__}")
-print(f"  MCAP:    {'✓' if MCAP_AVAILABLE else '✗ (pip install mcap-ros2-support)'}")
-print(f"  ROS2:    {'✓' if ROS2_AVAILABLE else '✗'}")
+print(f"  MCAP:    {'OK' if MCAP_AVAILABLE else 'NO (pip install mcap-ros2-support)'}")
+print(f"  ROS2:    {'OK' if ROS2_AVAILABLE else 'NO'}")
 
 
 def extract_mcap(raw_path):
     """
-    Extrai dados de telemetria de arquivos MCAP.
-    Suporta tanto CDR ROS2 real (ros2msg) quanto JSON encoding.
+    Extract telemetry data from MCAP files.
+    Supports both real CDR ROS2 (ros2msg) and JSON encoding.
     """
     if not MCAP_AVAILABLE:
         raise RuntimeError("MCAP not installed. Run: pip install mcap-ros2-support")
@@ -114,7 +114,7 @@ def extract_mcap(raw_path):
                             if k not in entry:
                                 entry[k] = round(v, 3) if isinstance(v, float) else v
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    print(f"  [SKIP] Mensagem binária sem decoder: {topic}")
+                    print(f"  [SKIP] Binary message without decoder: {topic}")
                     continue
 
                 records.append(entry)
@@ -167,7 +167,7 @@ def _extract_ros2_fields(msg, msg_type, entry):
 
 
 def extract_json(raw_path):
-    """Fallback: ler arquivo JSON"""
+    """Fallback: read JSON file"""
     path = Path(raw_path)
     print(f"\n[EXTRACT] JSON: {path}")
     with open(path) as f:
@@ -177,7 +177,7 @@ def extract_json(raw_path):
 
 
 def transform(data):
-    """Calcula campos derivados: distância, velocidade, aceleração"""
+    """Calculate derived fields: distance, speed, acceleration"""
     print(f"\n[TRANSFORM] {len(data)} records...")
     data.sort(key=lambda x: x["timestamp"])
 
@@ -202,16 +202,16 @@ def transform(data):
 
     total_dist = sum(d.get("distance_delta", 0) for d in data)
     avg_speed = sum(d.get("speed_ms", 0) for d in data) / len(data) if data else 0
-    print(f"[TRANSFORM] Distância total: {total_dist:.1f} m")
-    print(f"[TRANSFORM] Velocidade média: {avg_speed:.2f} m/s")
+    print(f"[TRANSFORM] Total distance: {total_dist:.1f} m")
+    print(f"[TRANSFORM] Average speed: {avg_speed:.2f} m/s")
     if len(data) > 1:
-        print(f"[TRANSFORM] Duração: {data[-1]['timestamp'] - data[0]['timestamp']:.1f} s")
+        print(f"[TRANSFORM] Duration: {data[-1]['timestamp'] - data[0]['timestamp']:.1f} s")
 
     return data
 
 
 def load_parquet(data, parquet_path):
-    """Carrega dados no DuckDB e exporta como Parquet"""
+    """Load data into DuckDB and export as Parquet"""
     parquet_path = Path(parquet_path)
     base_dir = parquet_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -239,7 +239,7 @@ def load_parquet(data, parquet_path):
             con.execute(f"COPY (SELECT * FROM flight WHERE {cond}) TO '{part_file}' (FORMAT PARQUET, CODEC 'ZSTD')")
             count = con.execute(f"SELECT COUNT(*) FROM flight WHERE {cond}").fetchone()[0]
             if count > 0:
-                print(f"[LOAD] Partição '{name}': {count} records -> {part_file}")
+                print(f"[LOAD] Partition '{name}': {count} records -> {part_file}")
 
     meta = {
         "pipeline": "MCAP -> Parquet -> DuckDB",
@@ -252,7 +252,7 @@ def load_parquet(data, parquet_path):
     meta_path = base_dir / "metadata.json"
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"[LOAD] Metadados: {meta_path}")
+    print(f"[LOAD] Metadata: {meta_path}")
 
     con.close()
     return str(parquet_path)
@@ -288,8 +288,8 @@ def analyze(parquet_path):
 
 def generate_sample_mcap(path, num_records=500):
     """
-    Gera um arquivo MCAP REAL com encoding CDR ROS2 (ros2msg).
-    Usa nav_msgs/Odometry com msgdef completo de todos os sub-tipos.
+    Generate a REAL MCAP file with CDR ROS2 encoding (ros2msg).
+    Uses nav_msgs/Odometry with full msgdef for all sub-types.
     """
     from mcap_ros2.writer import Writer
 
@@ -416,9 +416,9 @@ geometry_msgs/TwistWithCovariance twist"""
     writer.finish()
 
     size = path.stat().st_size
-    print(f"[SAMPLE] {num_records} mensagens nav_msgs/Odometry em CDR ROS2")
-    print(f"[SAMPLE] Encoding: ros2msg (CDR binário ROS2)")
-    print(f"[SAMPLE] Tamanho: {size/1024:.1f} KB")
+    print(f"[SAMPLE] {num_records} nav_msgs/Odometry messages in CDR ROS2")
+    print(f"[SAMPLE] Encoding: ros2msg (CDR ROS2 binary)")
+    print(f"[SAMPLE] Size: {size/1024:.1f} KB")
 
     # Verifica se o decoder consegue ler
     print(f"\n[SAMPLE] Verificando leitura com DecoderFactory...")
@@ -430,11 +430,11 @@ geometry_msgs/TwistWithCovariance twist"""
         count = 0
         for schema, channel, message, ros_msg in reader.iter_decoded_messages():
             if count == 0:
-                print(f"  ✓ {channel.topic} ({schema.name})")
-                print(f"  ✓ Position: {ros_msg.pose.pose.position.x:.1f}, {ros_msg.pose.pose.position.y:.1f}")
-                print(f"  ✓ Encoding: {schema.encoding}")
+                print(f"  [OK] {channel.topic} ({schema.name})")
+                print(f"  [OK] Position: {ros_msg.pose.pose.position.x:.1f}, {ros_msg.pose.pose.position.y:.1f}")
+                print(f"  [OK] Encoding: {schema.encoding}")
             count += 1
-        print(f"  ✓ {count} mensagens decodificadas com sucesso via DecoderFactory!")
+        print(f"  OK: {count} messages successfully decoded via DecoderFactory!")
 
     return str(path)
 
@@ -473,7 +473,7 @@ def generate_sample_json(path, num_records=500):
 
 
 def find_mcap_files(directory):
-    """Encontra arquivos .mcap recursivamente"""
+    """Find .mcap files recursively"""
     path = Path(directory)
     if not path.exists():
         return []
@@ -494,7 +494,7 @@ def main():
 
     args = sys.argv[1:]
 
-    # Gerar dados de amostra
+    # Generate sample data
     if "--generate-sample" in args or "--generate-mcap" in args:
         num = 500
         for a in args:
@@ -512,7 +512,7 @@ def main():
 
         return 0
 
-    # Listar arquivos
+    # List files
     if "--list" in args:
         for label, ext in [("MCAP", "*.mcap"), ("JSON", "*.json")]:
             files = sorted(raw_dir.rglob(ext))
@@ -538,12 +538,9 @@ def main():
             records = extract_mcap(mcap_file)
             all_records.extend(records)
         data = all_records
-    elif json_files:
-        data = extract_json(json_files[0])
     else:
-        print(f"\n[INFO] Nenhum arquivo MCAP ou JSON em {raw_dir}")
-        print(f"  python3 {sys.argv[0]} --generate-mcap")
-        print(f"  python3 {sys.argv[0]} --generate-sample")
+        print(f"\n[INFO] No MCAP files found in {raw_dir}")
+        print(f"  Run: python3 {sys.argv[0]} --generate-mcap")
         return 1
 
     data = transform(data)
@@ -552,8 +549,8 @@ def main():
     analyze(parquet_path)
 
     print("\n" + "=" * 60)
-    print("  Pipeline completo!")
-    print(f"  Saída: {parquet_path}")
+    print("  Pipeline complete!")
+    print(f"  Output: {parquet_path}")
     print("=" * 60)
     return 0
 

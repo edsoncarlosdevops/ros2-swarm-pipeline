@@ -1,8 +1,8 @@
 """
 Shared DuckDB SQL queries for drone flight data analysis.
 
-Usado tanto pelo pipeline ETL (mcap_to_parquet.py) quanto pelo
-analytics dedicado (analyze_flight.py), evitando duplicação.
+Used by both the ETL pipeline (mcap_to_parquet.py) and the
+dedicated analytics module (analyze_flight.py), avoiding duplication.
 """
 
 import duckdb
@@ -20,7 +20,7 @@ def get_parquet_path(data_dir=None):
     partitions = sorted(Path(data_dir).rglob("*.parquet"))
     if partitions:
         return str(partitions[0])
-    raise FileNotFoundError(f"Nenhum Parquet encontrado em {data_dir}")
+    raise FileNotFoundError(f"No Parquet file found in {data_dir}")
 
 
 def flight_summary(parquet_path):
