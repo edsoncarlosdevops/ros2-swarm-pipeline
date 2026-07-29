@@ -1,0 +1,45 @@
+# =============================================================================
+# Reusable Workflow: DuckDB Analytics & Flight Report
+# =============================================================================
+
+name: DuckDB Analytics
+
+on:
+  workflow_call:
+
+jobs:
+  analyze:
+    name: DuckDB Analytics
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment with pip cache
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: "3.12"
+          requirements: etl_pipeline/requirements.txt
+
+      - name: Cache data artifacts between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw/
+            data/processed/
+          key: ${{ runner.os }}-data-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-data-
+
+      - name: Execute DuckDB analytical queries and generate flight report
+        run: python etl_pipeline/analyze_flight.py --report
+
+      - name: Validate analytics results with assertions
+        run: python etl_pipeline/validate_analytics.py
+
+      - name: Upload flight report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-report
+          path: data/processed/flight_report.md
+          if-no-files-found: warn

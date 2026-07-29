@@ -1,0 +1,83 @@
+# =============================================================================
+# Reusable Workflow: Docker Compose Integration & DDS Verification
+# =============================================================================
+
+name: Docker Compose Integration
+
+on:
+  workflow_call:
+
+jobs:
+  integration:
+    name: Docker Compose Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Compose
+        run: docker compose version
+
+      - name: Download Docker image (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ros2-swarm-image-amd64
+          path: /tmp
+
+      - name: Load Docker image and tag
+        run: |
+          docker load -i /tmp/ros2-swarm-amd64.tar
+          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
+          docker image ls ros2-swarm-pipeline:latest
+        
+      - name: Override docker-compose to use prebuilt image
+        run: |
+          cat > docker-compose.override.yml << 'EOF_OVERRIDE'
+          services:
+            telemetry_pub:
+              image: ros2-swarm-pipeline:latest
+            telemetry_sub:
+              image: ros2-swarm-pipeline:latest
+            waypoint_planner:
+              image: ros2-swarm-pipeline:latest
+            drone_bridge:
+              image: ros2-swarm-pipeline:latest
+          EOF_OVERRIDE
+
+      - name: Start ROS 2 nodes and verify DDS communication
+        run: |
+          docker compose up -d
+          
+          echo "=== Waiting for containers to initialize (15s for DDS discovery) ==="
+          sleep 15
+
+          echo "=== Container status ==="
+          docker compose ps
+
+          echo "=== Publisher node logs (Python, 10Hz) ==="
+          docker compose logs telemetry_pub --tail 10
+
+          echo "=== Subscriber node logs (Python, ETL) ==="
+          docker compose logs telemetry_sub --tail 10
+
+          echo "=== C++ Subscriber node logs (telemetry_sub_cpp - cross-language proof) ==="
+          docker compose logs drone_bridge --tail 10
+
+          echo "=== Waypoint Planner node logs (Python, navigation) ==="
+          docker compose logs waypoint_planner --tail 10
+
+          # Verify all 4 containers are running (not restarting or exited)
+          RUNNING=$(docker compose ps --format json | grep -c '"running"' || true)
+          echo "=== Running containers: $RUNNING/4 ==="
+          
+          if [ "$RUNNING" -lt 4 ]; then
+            echo "ERROR: Expected 4 running containers, got $RUNNING"
+            echo "=== Full container status ==="
+            docker compose ps -a
+            echo "=== Publisher full logs ==="
+            docker compose logs telemetry_pub
+            docker compose down
+            exit 1
+          fi
+
+          docker compose down

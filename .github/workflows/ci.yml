@@ -2,20 +2,13 @@
 # ROS 2 Swarm Pipeline - CI/CD Orchestrator
 #
 # Main workflow that orchestrates reusable shared templates.
-# Each job delegates to a dedicated reusable workflow, following the
-# shared template pattern that Andrea Vergine described as a priority
-# for the Swarm Team DevOps platform.
-#
-# Key design decisions:
-#   1. Shared templates (reusable workflows) for DRY CI/CD
-#   2. Composite actions for step-level reusability
-#   3. Explicit dependency graph (needs) for pipeline efficiency
-#   4. Matrix builds for multi-architecture (amd64 + arm64)
+# Every job delegates to a dedicated reusable workflow, implementing the 
+# shared template pattern required for enterprise robotics platform engineering.
 #
 # Pipeline stages:
-#   lint -> etl -> analyze         (data pipeline: MCAP -> Parquet -> DuckDB)
-#   lint -> colcon-build           (C++ ROS 2 build with colcon)
-#   lint -> docker-build -> integration (container validation)
+#   lint -> etl -> analyze               (Data Pipeline)
+#   lint -> colcon-build                 (C++ ROS 2 colcon build with ccache)
+#   lint -> docker-build -> security-scan -> integration (Container pipeline)
 # =============================================================================
 
 name: ROS 2 Swarm Pipeline
@@ -29,7 +22,7 @@ on:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Stage 1: Code Quality - Flake8 lint on all Python ROS 2 nodes
+  # Stage 1: Code Quality (Shared Template)
   # --------------------------------------------------------------------------
   lint:
     name: Code Quality
@@ -39,7 +32,7 @@ jobs:
       max-line-length: 100
 
   # --------------------------------------------------------------------------
-  # Stage 2: Data Pipeline - Generate MCAP, convert to Parquet, validate
+  # Stage 2: Data Pipeline - MCAP -> Parquet (Shared Template)
   # --------------------------------------------------------------------------
   etl:
     name: ETL Pipeline
@@ -50,46 +43,15 @@ jobs:
       mcap-count: 500
 
   # --------------------------------------------------------------------------
-  # Stage 3: Analytics - DuckDB SQL queries + Flight Report
+  # Stage 3: Analytics - DuckDB SQL Queries (Shared Template)
   # --------------------------------------------------------------------------
   analyze:
     name: DuckDB Analytics
-    runs-on: ubuntu-latest
     needs: etl
+    uses: ./.github/workflows/analyze.yml
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python environment with pip cache
-        uses: ./.github/actions/setup-python
-        with:
-          python-version: "3.12"
-          requirements: etl_pipeline/requirements.txt
-
-      - name: Cache data artifacts between runs
-        uses: actions/cache@v4
-        with:
-          path: |
-            data/raw/
-            data/processed/
-          key: ${{ runner.os }}-data-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-data-
-
-      - name: Execute DuckDB analytical queries and generate flight report
-        run: python etl_pipeline/analyze_flight.py --report
-
-      - name: Validate analytics results with assertions
-        run: python etl_pipeline/validate_analytics.py
-
-      - name: Upload flight report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: flight-report
-          path: data/processed/flight_report.md
-          if-no-files-found: warn
   # --------------------------------------------------------------------------
-  # Stage 4: C++ Build - Compile ROS 2 C++ nodes with colcon
+  # Stage 4: C++ Colcon Build (Shared Template)
   # --------------------------------------------------------------------------
   colcon-build:
     name: C++ Colcon Build
@@ -100,8 +62,7 @@ jobs:
       package-path: "ros2_nodes/drone_bridge"
 
   # --------------------------------------------------------------------------
-  # Stage 5: Docker Build — Single image for all nodes (amd64 + arm64)
-  #   One image, multiple services. The entrypoint decides which node runs.
+  # Stage 5: Multi-architecture Docker Build (Shared Template)
   # --------------------------------------------------------------------------
   build-docker:
     name: Docker Build (multi-arch)
@@ -109,112 +70,17 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
 
   # --------------------------------------------------------------------------
-  # Stage 5.5: Security Scanning — Trivy Container Vulnerability Scan
+  # Stage 5.5: Container Vulnerability Scan (Shared Template)
   # --------------------------------------------------------------------------
   security-scan:
     name: Security Scan (Trivy)
-    runs-on: ubuntu-latest
     needs: [build-docker]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Docker image (amd64)
-        uses: actions/download-artifact@v4
-        with:
-          name: ros2-swarm-image-amd64
-          path: /tmp
-
-      - name: Load Docker image
-        run: |
-          docker load -i /tmp/ros2-swarm-amd64.tar
-          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
-
-      - name: Run Trivy vulnerability scanner on Docker image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'ros2-swarm-pipeline:latest'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+    uses: ./.github/workflows/security-scan.yml
 
   # --------------------------------------------------------------------------
-  # Stage 6: Integration - Validate multi-node DDS communication
+  # Stage 6: Multi-node DDS Integration Test (Shared Template)
   # --------------------------------------------------------------------------
   integration:
     name: Docker Compose Integration
-    runs-on: ubuntu-latest
     needs: [security-scan]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Docker Compose
-        run: docker compose version
-
-      - name: Download Docker image (amd64)
-        uses: actions/download-artifact@v4
-        with:
-          name: ros2-swarm-image-amd64
-          path: /tmp
-
-      - name: Load Docker image and tag
-        run: |
-          docker load -i /tmp/ros2-swarm-amd64.tar
-          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
-          docker image ls ros2-swarm-pipeline:latest
-        
-      - name: Override docker-compose to use prebuilt image
-        run: |
-          cat > docker-compose.override.yml << 'EOF'
-          services:
-            telemetry_pub:
-              image: ros2-swarm-pipeline:latest
-            telemetry_sub:
-              image: ros2-swarm-pipeline:latest
-            waypoint_planner:
-              image: ros2-swarm-pipeline:latest
-            drone_bridge:
-              image: ros2-swarm-pipeline:latest
-          EOF
-
-      - name: Start ROS 2 nodes and verify DDS communication
-        run: |
-          docker compose up -d
-          
-          echo "=== Waiting for containers to initialize (15s for DDS discovery) ==="
-          sleep 15
-
-          echo "=== Container status ==="
-          docker compose ps
-
-          echo "=== Publisher node logs (Python, 10Hz) ==="
-          docker compose logs telemetry_pub --tail 10
-
-          echo "=== Subscriber node logs (Python, ETL) ==="
-          docker compose logs telemetry_sub --tail 10
-
-          echo "=== C++ Subscriber node logs (telemetry_sub_cpp - cross-language proof) ==="
-          docker compose logs drone_bridge --tail 10
-
-          echo "=== Waypoint Planner node logs (Python, navigation) ==="
-          docker compose logs waypoint_planner --tail 10
-
-          # Verify all 4 containers are running (not restarting or exited)
-          RUNNING=$(docker compose ps --format json | grep -c '"running"' || true)
-          echo "=== Running containers: $RUNNING/4 ==="
-          
-          if [ "$RUNNING" -lt 4 ]; then
-            echo "ERROR: Expected 4 running containers, got $RUNNING"
-            echo "=== Full container status ==="
-            docker compose ps -a
-            echo "=== Publisher full logs ==="
-            docker compose logs telemetry_pub
-            docker compose down
-            exit 1
-          fi
-
-          docker compose down
-
+    uses: ./.github/workflows/integration.yml

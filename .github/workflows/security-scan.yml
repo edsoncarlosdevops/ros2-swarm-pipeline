@@ -1,0 +1,37 @@
+# =============================================================================
+# Reusable Workflow: Trivy Container Vulnerability Scan
+# =============================================================================
+
+name: Security Scan
+
+on:
+  workflow_call:
+
+jobs:
+  security-scan:
+    name: Security Scan (Trivy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Docker image (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ros2-swarm-image-amd64
+          path: /tmp
+
+      - name: Load Docker image
+        run: |
+          docker load -i /tmp/ros2-swarm-amd64.tar
+          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
+
+      - name: Run Trivy vulnerability scanner on Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ros2-swarm-pipeline:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
