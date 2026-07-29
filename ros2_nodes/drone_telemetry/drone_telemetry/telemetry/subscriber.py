@@ -86,12 +86,24 @@ class DroneTelemetrySubscriber(Node):
         """Called EVERY TIME a message arrives on /drone/odometry."""
         self.message_count += 1
 
-        # Write directly to MCAP (binary CDR ROS2 format)
-        self.writer.write(
-            '/drone/odometry',
-            msg,
-            self.get_clock().now().to_msg()
-        )
+        # Write directly to MCAP using serialized CDR binary message
+        from rclpy.serialization import serialize_message
+        serialized_msg = serialize_message(msg)
+        timestamp_ns = self.get_clock().now().nanoseconds
+
+        try:
+            self.writer.write(
+                '/drone/odometry',
+                serialized_msg,
+                timestamp_ns
+            )
+        except TypeError:
+            # Fallback if raw bytes conversion is expected
+            self.writer.write(
+                '/drone/odometry',
+                bytes(serialized_msg),
+                timestamp_ns
+            )
 
         # Log progress every 100 messages
         if self.message_count % 100 == 0:
