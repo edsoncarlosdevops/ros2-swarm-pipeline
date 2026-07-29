@@ -71,7 +71,7 @@ real-world technical requirements for multi-drone swarm operations.
 | **Auto-shutdown CI node** | C++ node detects missing publisher and shuts down gracefully after 30s, preventing CI hangs. |
 | **Kaniko-ready architecture** | Dockerfile designed for both Buildx (GitHub Actions) and Kaniko (GitLab CI/K8s) — secure, rootless builds. |
 | **Dev Containers** | Environment-as-code via `.devcontainer/devcontainer.json` — eliminates "works on my machine" with reproducible environments. |
-| **HIL-ready simulation** | `telemetry_sub_cpp` + `waypoint_planner_python` mock Hardware-in-the-Loop: node receives simulated sensor data as if on real drone hardware. |
+| **HIL-ready simulation** | `telemetry_sub_cpp` + `waypoint_planner_python` mock Hardware-in-the-Loop: nodes receive simulated sensor data as if on real drone hardware. `waypoint_planner` publishes `cmd_vel` in open-loop (demonstration only — not consumed by any node). |
 
 ---
 
@@ -99,34 +99,35 @@ real-world technical requirements for multi-drone swarm operations.
 ### Communication Topology
 
 ```
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │                        ROS 2 Domain (ID: 42)                         │
-  │                                                                      │
-  │  ┌───────────────────┐            ┌───────────────────────────────┐  │
-  │  │ telemetry_pub     │            │ telemetry_sub                 │  │
-  │  │ (Python, rclpy)   │─────────▶. │ (Python, rclpy)               │  │
-  │  │ 10 Hz Odometry    │  /drone    │ Subscribes & logs             │  │
-  │  │ publisher         │  /odometry │ Feeds into ETL pipeline       │  │
-  │  └───────────────────┘            └───────────────────────────────┘  │
-  │         │                                                            │
-  │         │  /drone/odometry (nav_msgs/Odometry)                       │
-  │         │                                                            │
-  │         ▼                                                            │
-  │  ┌──────────────────────────────────────────────────────────────┐    │
-  │  │ telemetry_sub_cpp (C++, rclcpp)                              │    │
-  │  │ Cross-language DDS: Python → C++                             │    │
-  │  │ Auto-shutdown after 30s without messages                     │    │
-  │  │ Health checks, status logging                                │    │
-  │  └──────────────────────────────────────────────────────────────┘    │
-  │         │                                                            │
-  │         │  /drone/odometry (same topic, different language)          │
-  │         ▼                                                            │
-  │  ┌──────────────────┐                                                │
-  │  │ waypoint_planner │                                                │
-  │  │ (Python, rclpy)  │                                                │
-  │  │ Navigation logic │                                                │
-  │  └──────────────────┘                                                │
-  └──────────────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                          ROS 2 Domain (ID: 42)                          │
+  │                                                                         │
+  │  ┌───────────────────┐              ┌─────────────────────────────────┐  │
+  │  │ telemetry_pub     │              │ telemetry_sub                   │  │
+  │  │ (Python, rclpy)   │──────────▶   │ (Python, rclpy)                 │  │
+  │  │ 10 Hz Odometry    │  /drone      │ Subscribes & records MCAP       │  │
+  │  │ publisher         │  /odometry   │ Feeds into ETL pipeline         │  │
+  │  └───────────────────┘              └─────────────────────────────────┘  │
+  │         │                                                               │
+  │         │  /drone/odometry (nav_msgs/Odometry)                          │
+  │         │                                                               │
+  │         ├───────────────────────────────────────────────┐                │
+  │         │                                               │                │
+  │         ▼                                               ▼                │
+  │  ┌─────────────────────────────────────────┐   ┌──────────────────────┐  │
+  │  │ telemetry_sub_cpp (C++, rclcpp)         │   │ waypoint_planner     │  │
+  │  │ Cross-language DDS: Python → C++        │   │ (Python, rclpy)      │  │
+  │  │ Auto-shutdown 30s without messages      │   │ Mock navigation      │  │
+  │  │ Health checks, status logging           │   │                      │  │
+  │  └─────────────────────────────────────────┘   │  /drone/cmd_vel ──▶  │  │
+  │                                                │  [not consumed]      │  │
+  │                                                │  (open-loop demo)    │  │
+  │                                                └──────────────────────┘  │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  NOTE: waypoint_planner subscribes to /drone/odometry and publishes
+  /drone/cmd_vel, but no node consumes cmd_vel. This is an open-loop
+  demonstration of topic-based navigation — not a closed control loop.
 ```
 
 ### Cross-Language DDS
@@ -237,23 +238,29 @@ The architecture supports **Hardware-in-the-Loop** simulation — a technique wh
 software components receive mock sensor data that mimics real drone hardware:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  HIL Simulation Setup                       │
-│                                                             │
-│  ┌──────────────────┐        ┌───────────────────────────┐  │
-│  │ waypoint_planner │───────▶│  telemetry_sub_cpp (C++)  │  │
-│  │ (mock navigation)│        │  Receives mock Odometry   │  │
-│  │ generates fake   │        │  as if from real drone    │  │
-│  │ GPS waypoints    │        │  sensors                  │  │
-│  └──────────────────┘        └───────────────────────────┘  │
-│         │                              │                    │
-│         │  /drone/cmd_vel              │  /drone/odometry   │
-│         ▼                              ▼                    │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │            DDS Middleware (Fast DDS)                 │   │
-│  │       Same protocol used on real drones              │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                  HIL Simulation Setup                           │
+│                                                                 │
+│  ┌────────────────────┐          ┌───────────────────────────┐  │
+│  │ telemetry_pub      │──────▶   │ telemetry_sub_cpp (C++)   │  │
+│  │ (mock IMU + GPS)   │ /drone   │ Receives mock Odometry    │  │
+│  │ 10 Hz Odometry     │ /odometry│ as if from real sensors   │  │
+│  └────────────────────┘          └───────────────────────────┘  │
+│         │                                                       │
+│         │  /drone/odometry                                      │
+│         ▼                                                       │
+│  ┌────────────────────┐                                         │
+│  │ waypoint_planner   │──▶ /drone/cmd_vel ──▶ [not consumed]   │
+│  │ (mock navigation)  │    (open-loop demo)                     │
+│  │ computes velocity  │                                         │
+│  │ towards waypoints  │                                         │
+│  └────────────────────┘                                         │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │            DDS Middleware (Fast DDS)                      │   │
+│  │       Same protocol used on real drones                   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **What HIL enables:**
@@ -262,10 +269,13 @@ software components receive mock sensor data that mimics real drone hardware:
 - **CI/CD integration:** Run automated HIL tests in GitHub Actions / GitLab CI
 - **Cost savings:** 1 developer machine simulates what would require a physical drone + test field
 
-**Current HIL implementation:**
-- `telemetry_sub_cpp` auto-shutdown after 30s without messages — CI-safe simulation
-- `waypoint_planner_python` generates synthetic waypoints that feed into the pipeline
+**Current HIL implementation (open-loop mock):**
 - `telemetry_pub_python` publishes mock Odometry at 10 Hz, mimicking real IMU + GPS
+- `telemetry_sub_cpp` auto-shutdown after 30s without messages — CI-safe simulation
+- `waypoint_planner_python` subscribes to odometry and publishes velocity commands (`cmd_vel`)
+- **Note:** The control loop is open — `cmd_vel` is published but not consumed by any node.
+  In a production system, a flight controller would close this loop. This design demonstrates
+  topic-based communication patterns without requiring a full flight stack.
 
 ---
 
@@ -968,6 +978,8 @@ are simulated. Benefits:
 This project's `telemetry_sub_cpp` (C++) and `waypoint_planner_python` (Python) implement a
 basic HIL setup — the C++ node subscribes to mock Odometry and validates
 cross-language DDS communication, as if receiving real drone telemetry.
+`waypoint_planner_python` publishes velocity commands (`cmd_vel`) in open-loop
+(not consumed by any node) — demonstrating navigation patterns without a full flight stack.
 
 ### Why Harbor Registry?
 

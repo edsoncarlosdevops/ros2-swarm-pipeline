@@ -103,13 +103,13 @@ class DroneTelemetrySubscriber(Node):
             )
 
     def close_writer(self):
-    # Close MCAP writer gracefully.
-    if hasattr(self, 'writer') and self.writer is not None:
-        self.get_logger().info(
-            f'Closing MCAP writer ({self.message_count} total messages recorded)'
-        )
-        del self.writer
-        self.writer = None
+        """Close MCAP writer gracefully."""
+        if hasattr(self, 'writer') and self.writer is not None:
+            self.get_logger().info(
+                f'Closing MCAP writer ({self.message_count} total messages recorded)'
+            )
+            del self.writer
+            self.writer = None
 
 
 def main(args=None):

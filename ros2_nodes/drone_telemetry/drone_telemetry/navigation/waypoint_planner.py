@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Waypoint Planner - ROS 2 Node
+Waypoint Planner - ROS 2 Node (Demonstration / Mock Navigation)
 
 Subscribes to /drone/odometry and publishes navigation commands on /drone/cmd_vel.
-Simulates a navigation node that calculates the next waypoint based on the
-drone's current position.
+Simulates a navigation node that calculates velocity commands to follow
+a sequence of predefined waypoints based on the drone's current position.
 
-Flow:
-  telemetry_pub (odometry) -> waypoint_planner (cmd_vel) -> telemetry_pub (receives command)
+NOTE: This is a demonstration node — the published /drone/cmd_vel topic is NOT
+consumed by telemetry_pub or any other node in this pipeline. The navigation
+loop is open-loop (mock). In a real system, a flight controller would consume
+cmd_vel to close the control loop.
+
+Flow (open-loop mock):
+  telemetry_pub (odometry) -> waypoint_planner (cmd_vel) -> [not consumed]
 
 Concepts:
   - ROS 2 Subscriber (receives odometry)
   - ROS 2 Publisher (sends cmd_vel)
-  - Basic navigation logic (simplified PID)
-  - Node dependency via topics
+  - Basic navigation logic (simplified proportional control)
+  - Open-loop demonstration of topic-based node communication
 """
 
 import rclpy

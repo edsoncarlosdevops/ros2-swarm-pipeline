@@ -1,4 +1,4 @@
-We need to output the complete modified file according to the suggested edit. The suggestion adds `report` to `.PHONY`, adds a new `report` target, modifies `analyze` to add `--report` flag, modifies `ci` comments to include report, modifies `clean` to also remove `data/processed/flight_report.md`, modifies `all` comment to include report, and updates section comments. I'll produce the final file exactly as it would be with those changes applied..PHONY: help lint install-python build-cpp etl etl-generate analyze validate report docker-build docker-up docker-down test all clean
+.PHONY: help lint install-python build-cpp etl etl-generate analyze validate report docker-build docker-up docker-down test all clean
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
