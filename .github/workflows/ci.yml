@@ -100,34 +100,13 @@ jobs:
       package-path: "ros2_nodes/drone_bridge"
 
   # --------------------------------------------------------------------------
-  # Stage 5: Docker Build - Multi-architecture container images (python + cpp)
+  # Stage 5: Docker Build — Single image for all nodes (amd64 + arm64)
+  #   One image, multiple services. The entrypoint decides which node runs.
   # --------------------------------------------------------------------------
-  build-telemetry-pub-python:
-    name: Build telemetry_pub_python (Docker)
+  build-docker:
+    name: Docker Build (multi-arch)
     needs: lint
     uses: ./.github/workflows/docker-build.yml
-    with:
-      service-name: "telemetry_pub_python"
-      dockerfile: "docker/Dockerfile"
-      context: "."
-
-  build-telemetry-sub-python:
-    name: Build telemetry_sub_python (Docker)
-    needs: build-telemetry-pub-python
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      service-name: "telemetry_sub_python"
-      dockerfile: "docker/Dockerfile"
-      context: "."
-
-  build-waypoint-planner-python:
-    name: Build waypoint_planner_python (Docker)
-    needs: build-telemetry-pub-python
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      service-name: "waypoint_planner_python"
-      dockerfile: "docker/Dockerfile"
-      context: "."
 
   # --------------------------------------------------------------------------
   # Stage 6: Integration - Validate multi-node DDS communication
@@ -136,7 +115,7 @@ jobs:
   integration:
     name: Docker Compose Integration
     runs-on: ubuntu-latest
-    needs: [build-telemetry-pub-python, build-telemetry-sub-python, build-waypoint-planner-python]
+    needs: [build-docker]
 
     steps:
       - uses: actions/checkout@v4

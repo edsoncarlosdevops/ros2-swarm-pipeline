@@ -1,79 +1,56 @@
 # =============================================================================
-# Composite Action: Docker Multi-architecture Build
+# Composite Action: Docker Build (single image, multi-arch via matrix)
 #
-# Shared template for building Docker images with Buildx.
-# Supports both amd64 and arm64 architectures with layer caching.
-#
-# This implements the heterogeneous build pattern: different runner
-# architectures (CPU, GPU, ARM64) with consistent build pipelines.
-#
-# Usage:
-#   - uses: ./.github/actions/docker-build
-#     with:
-#       service-name: pub
-#       dockerfile: docker/Dockerfile
-#       context: .
-#       arch: arm64
+# Builds the unified ROS 2 swarm image containing ALL nodes (Python + C++).
+# Architecture is passed as input; the matrix strategy lives in the
+# reusable workflow that calls this action.
 # =============================================================================
 
-name: Docker Multi-architecture Build
-description: Builds Docker images for multiple architectures with Buildx
+name: Docker Build
+description: Builds the ROS 2 swarm image for a single architecture
 
 inputs:
-  service-name:
-    description: Logical name for the service (used in image tag)
+  arch:
+    description: Target architecture (amd64 or arm64)
     required: true
   dockerfile:
     description: Path to Dockerfile
     required: false
     default: docker/Dockerfile
   context:
-    description: Docker build context directory
+    description: Build context
     required: false
-    default: .
-  arch:
-    description: Target architecture (amd64 or arm64)
-    required: true
-  image-name:
-    description: Docker image name
-    required: false
-    default: ${{ github.repository }}
+    default: "."
 
 runs:
   using: composite
   steps:
-    - name: Set up QEMU for multi-architecture emulation
+    - name: Set up QEMU for cross-architecture emulation
       uses: docker/setup-qemu-action@v3
+      with:
+        platforms: ${{ inputs.arch }}
 
-    - name: Set up Docker Buildx with target platform
+    - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-      with:
-        platforms: linux/${{ inputs.arch }}
 
-    - name: Cache Docker layers for faster rebuilds
+    - name: Cache Docker layers
       uses: actions/cache@v4
-      id: docker-cache
       with:
-        path: /tmp/.buildx-cache-${{ inputs.service-name }}
-        key: ${{ runner.os }}-buildx-${{ inputs.service-name }}-${{ inputs.arch }}-${{ github.sha }}
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ inputs.arch }}-${{ github.sha }}
         restore-keys: |
-          ${{ runner.os }}-buildx-${{ inputs.service-name }}-${{ inputs.arch }}
-          ${{ runner.os }}-buildx-${{ inputs.service-name }}
+          ${{ runner.os }}-buildx-${{ inputs.arch }}-
 
-    - name: Build Docker image with Buildx
-      uses: docker/build-push-action@v6
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile }}
         platforms: linux/${{ inputs.arch }}
         push: false
-        cache-from: type=local,src=/tmp/.buildx-cache-${{ inputs.service-name }}
-        cache-to: type=local,dest=/tmp/.buildx-cache-${{ inputs.service-name }}-new,mode=max
         load: true
-        tags: ${{ inputs.image-name }}:${{ inputs.service-name }}-${{ inputs.arch }}-${{ github.sha }}
-
-    - name: Move cache for next run
-      shell: bash
-      run: |
-        rm -rf /tmp/.buildx-cache-${{ inputs.service-name }}
-        mv /tmp/.buildx-cache-${{ inputs.service-name }}-new /tmp/.buildx-cache-${{ inputs.service-name }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+        tags: |
+          ghcr.io/${{ github.repository }}:latest-${{ inputs.arch }}
+          ghcr.io/${{ github.repository }}:${{ github.sha }}-${{ inputs.arch }}

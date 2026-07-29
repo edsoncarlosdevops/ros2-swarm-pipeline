@@ -355,27 +355,19 @@ correct execution order.
                     │                     │                     │
                     ▼                     ▼                     ▼
     ┌─────────────────────────┐  ┌──────────────┐  ┌───────────────────────┐
-    │     etl (MCAP→Parquet)  │  │ colcon-build │  │ build-node-pub        │
+    │     etl (MCAP→Parquet)  │  │ colcon-build │  │ build-docker          │
     │    Generate + transform │  │ (C++ colcon) │  │ (Docker: amd64+arm64) │
     └──────────┬──────────────┘  └──────────────┘  └───────────┬───────────┘
                │                                               │
                ▼                                               ▼
     ┌─────────────────────────┐                    ┌───────────────────────┐
-    │  analyze (DuckDB SQL)   │                    │ build-node-sub        │
-    │   Queries + assertions  │                    │ (Docker: amd64+arm64) │
-    └─────────────────────────┘                    └───────────┬───────────┘
-                                                               │
-                                                               ▼
-                                                    ┌───────────────────────┐
-                                                    │ build-node-nav        │
-                                                    │ (Docker: amd64+arm64) │
-                                                    └───────────┬───────────┘
-                                                               │
-                                                               ▼
-                                                    ┌───────────────────────┐
-                                                    │  integration          │
-                                                    │  Docker Compose test  │
-                                                    └───────────────────────┘
+    │  analyze (DuckDB SQL)   │                    │  integration          │
+    │   Queries + assertions  │                    │  Docker Compose test  │
+    └─────────────────────────┘                    └───────────────────────┘
+
+    Note: A single Docker image contains all 4 ROS 2 nodes
+    (Python pub/sub/waypoint + C++ bridge). The docker-compose.yml
+    entrypoint selects which process to run per container.
 ```
 
 ### Stage Details
@@ -467,16 +459,26 @@ Steps:
 | **What it does** | Builds Docker images with multi-stage caching |
 
 Three services are built (sequentially due to dependencies):
-- `build-node-pub`: `telemetry_pub_python` image
-- `build-node-sub`: `telemetry_sub_python` image (depends on pub)
-- `build-node-nav`: `waypoint_planner_python` image (depends on pub)
+- `build-docker`: Single unified ROS 2 image (amd64 + arm64). Contains all nodes
+  (Python publisher, subscriber, waypoint planner + C++ bridge). One image,
+  multiple services — the entrypoint decides which node runs per container.
 
-Each build uses:
-- QEMU for cross-architecture emulation
-- Buildx with target platform (linux/amd64 or linux/arm64)
-- Layer caching via actions/cache
-- Multi-stage Dockerfile (builder-python → builder-cpp → runtime)
-- Non-root `ros` user for security
+A single unified image is built per architecture, not separate images per service.
+The `docker-compose.yml` assigns different `command:` entries to launch each node
+from the same image:
+
+| Container | Command |
+|-----------|---------|
+| `telemetry_pub` | `telemetry_pub_python` |
+| `telemetry_sub` | `telemetry_sub_python` |
+| `waypoint_planner` | `waypoint_planner_python` |
+| `drone_bridge` | `ros2 run drone_bridge telemetry_sub_cpp` |
+
+**Why a single image?**
+- All nodes share the same dependencies (ROS 2, Python packages, C++ binaries)
+- Cuts CI build time (1 image vs 3 per architecture)
+- Drone deployment: `docker pull` one image, run 4 containers
+- Same image for dev (amd64) and edge/Jetson (arm64)
 
 #### Stage 6: Integration (Docker Compose)
 
