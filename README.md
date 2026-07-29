@@ -151,43 +151,39 @@ This proves that:
 - **Topics** are shared transparently across language boundaries
 - **No bridge or proxy** is needed — DDS handles serialization/deserialization automatically
 
-### Data Pipeline
+### Data & Lake Architecture
 
-The ETL pipeline processes drone telemetry through three stages:
+The telemetry platform uses a **Medallion Data Lake Pattern** designed for high-frequency robotics data ingestion and analytical querying:
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌───────────┐
-│   MCAP   │────▶│  Parquet │────▶│  DuckDB  │────▶│  Report   │
-│   MCAP   │     │  (Zstd)  │     │   SQL    │     │  (Console)│
-└──────────┘     └──────────┘     └──────────┘     └───────────┘
-     │               │               │               │
-     │ CDR ROS2      │ Columnar      │ SQL queries   │ Aggregated
-     │ binary        │ compression   │ via Python    │ statistics
-     │ encoding      │ 5-10x smaller │ API           │
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   RAW / BRONZE  │ ───▶ │     SILVER      │ ───▶ │      GOLD       │ ───▶ │   ANALYTICS     │
+│   MCAP (CDR)    │      │ Parquet (Zstd)  │      │ Altitude Binned │      │  DuckDB / SQL   │
+└─────────────────┘      └─────────────────┘      └─────────────────┘      └─────────────────┘
+     │                        │                        │                        │
+     │ High-speed DDS         │ Columnar format        │ Partitioned dataset    │ In-memory OLAP  │
+     │ zero-overhead record   │ 5-10x compression      │ low / mid / high alt   │ SQL reporting   │
 ```
 
-**Stage 1: Extract (MCAP)**
-- Reads ROS 2 bag files in MCAP format with CDR ROS 2 encoding
-- Supports both `ros2msg` (real ROS 2 binary) and JSON encoding
-- Decodes `nav_msgs/Odometry` messages via `mcap_ros2.DecoderFactory`
-- Returns structured records with timestamp, topic, position, velocity
+**1. Bronze Layer (Raw Storage - MCAP / CDR)**
+- Drones publish telemetry at 10–100 Hz over Fast DDS.
+- `telemetry_sub_python` captures raw binary CDR frames directly into **MCAP** bag files (`data/raw/`).
+- **Why MCAP?** It provides zero-serialization overhead on edge devices (Jetson/ARM), preventing frame drops during high-speed autonomous flight.
 
-**Stage 2: Transform (Python)**
-- Sorts records by timestamp
-- Calculates derived fields: distance delta, speed, acceleration (ax, ay, az)
-- Computes total distance, average speed, flight duration
+**2. Silver Layer (Structured Lake - Apache Parquet)**
+- `mcap_to_parquet.py` transforms raw MCAP streams into compressed **Apache Parquet** files (`data/processed/flight_data.parquet`).
+- Computes derived kinematics (kinematic velocities, linear accelerations $a_x, a_y, a_z$, and step distances).
+- Applies **Zstd compression** and partitions files by flight envelope (altitude bins: `low_altitude`, `mid_altitude`, `high_altitude`).
+- **Why Parquet?** Columnar storage eliminates redundant row scans, allowing queries to read only required fields (e.g., `z` or `speed_ms`).
 
-**Stage 3: Load (Parquet via DuckDB)**
-- Creates DuckDB in-memory database
-- Registers Pandas DataFrame as a table
-- Exports to Parquet with Zstd compression
-- Generates partitioned datasets: low_altitude, mid_altitude, high_altitude
+**3. Gold Layer & Querying (DuckDB In-Memory OLAP)**
+- **DuckDB** acts as an embedded, serverless OLAP engine querying the Parquet Data Lake directly without requiring an expensive persistent database server.
+- Executes vectorised SQL queries in milliseconds for flight performance verification, anomaly detection, and report generation (`flight_report.md`).
 
-**Analytics (DuckDB SQL)**
-After loading, the pipeline runs analytical queries:
+**Analytics Query Example:**
 
 ```sql
--- Flight summary
+-- Flight summary query against Parquet Data Lake
 SELECT
     COUNT(*) as samples,
     ROUND(SUM(distance_delta), 2) as total_distance_meters,
@@ -195,7 +191,7 @@ SELECT
     ROUND(AVG(z), 2) as avg_altitude_meters
 FROM read_parquet('data/processed/flight_data.parquet');
 
--- Speed distribution
+-- Speed distribution profiling
 SELECT
     CASE
         WHEN speed_ms < 2 THEN 'slow'
