@@ -319,12 +319,15 @@ ros2-swarm-pipeline/
 │
 ├── .github/                             # GitHub Actions configuration
 │   │
-│   ├── workflows/                       # Reusable workflows (shared templates)
-│   │   ├── ci.yml                       # Pipeline orchestrator (dependency graph)
+│   ├── workflows/                       # Reusable workflows (100% shared templates)
+│   │   ├── ci.yml                       # Pipeline orchestrator (100% reusable workflow calls)
 │   │   ├── lint.yml                     # Flake8 code quality (workflow_call)
-│   │   ├── etl-pipeline.yml             # MCAP → Parquet → DuckDB (workflow_call)
+│   │   ├── etl-pipeline.yml             # MCAP → Parquet ETL (workflow_call)
+│   │   ├── analyze.yml                  # DuckDB SQL analytics & report (workflow_call)
 │   │   ├── colcon-build.yml             # C++ colcon build + ccache (workflow_call)
-│   │   └── docker-build.yml             # Multi-arch Docker + matrix (workflow_call)
+│   │   ├── docker-build.yml             # Multi-arch Docker + matrix (workflow_call)
+│   │   ├── security-scan.yml            # Trivy container CVE scanner (workflow_call)
+│   │   └── integration.yml              # Docker Compose DDS integration (workflow_call)
 │   │
 │   └── actions/                         # Composite actions (step-level templates)
 │       ├── setup-python/action.yml      # Python + pip cache setup

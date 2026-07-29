@@ -2,13 +2,14 @@
 # ROS 2 Swarm Pipeline - CI/CD Orchestrator
 #
 # Main workflow that orchestrates reusable shared templates.
-# Every job delegates to a dedicated reusable workflow, implementing the 
-# shared template pattern required for enterprise robotics platform engineering.
+# 100% of jobs delegate to dedicated reusable workflows (on: workflow_call),
+# implementing the enterprise shared template pattern required for 
+# robotics platform engineering.
 #
 # Pipeline stages:
-#   lint -> etl -> analyze               (Data Pipeline)
+#   lint -> etl -> analyze               (Data Pipeline & Analytics)
 #   lint -> colcon-build                 (C++ ROS 2 colcon build with ccache)
-#   lint -> docker-build -> security-scan -> integration (Container pipeline)
+#   lint -> docker-build -> security-scan -> integration (Container Pipeline)
 # =============================================================================
 
 name: ROS 2 Swarm Pipeline
