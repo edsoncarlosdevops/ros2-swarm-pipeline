@@ -67,11 +67,19 @@ class DroneTelemetrySubscriber(Node):
         self.writer.open(storage_options, converter_options)
 
         # Register topic metadata on the writer before first write call
-        topic_info = TopicMetadata(
-            name='/drone/odometry',
-            type='nav_msgs/msg/Odometry',
-            serialization_format='cdr'
-        )
+        try:
+            topic_info = TopicMetadata(
+                1,
+                '/drone/odometry',
+                'nav_msgs/msg/Odometry',
+                'cdr'
+            )
+        except TypeError:
+            topic_info = TopicMetadata(
+                name='/drone/odometry',
+                type='nav_msgs/msg/Odometry',
+                serialization_format='cdr'
+            )
         self.writer.create_topic(topic_info)
 
         # === Subscribers ===
