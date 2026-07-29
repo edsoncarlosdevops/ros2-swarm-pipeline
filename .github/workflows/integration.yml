@@ -24,28 +24,32 @@ jobs:
           name: ros2-swarm-image-amd64
           path: /tmp
 
-      - name: Load Docker image and tag
+      - name: Load Docker image and tag with commit hash
         run: |
           docker load -i /tmp/ros2-swarm-amd64.tar
-          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
-          docker image ls ros2-swarm-pipeline:latest
+          COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:${COMMIT_SHA}
+          echo "IMAGE_TAG=ros2-swarm-pipeline:${COMMIT_SHA}" >> $GITHUB_ENV
+          echo "=== Loaded Image ==="
+          docker image ls ros2-swarm-pipeline:${COMMIT_SHA}
         
       - name: Override docker-compose to use prebuilt image
         run: |
-          cat > docker-compose.override.yml << 'EOF_OVERRIDE'
+          COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          cat > docker-compose.override.yml << EOF_OVERRIDE
           services:
             telemetry_pub:
-              image: ros2-swarm-pipeline:latest
+              image: ros2-swarm-pipeline:${COMMIT_SHA}
             telemetry_sub:
-              image: ros2-swarm-pipeline:latest
+              image: ros2-swarm-pipeline:${COMMIT_SHA}
               environment:
                 - ROS_DOMAIN_ID=42
                 - TELEMETRY_DATA_DIR=/tmp/data/raw
               volumes: []
             waypoint_planner:
-              image: ros2-swarm-pipeline:latest
+              image: ros2-swarm-pipeline:${COMMIT_SHA}
             drone_bridge:
-              image: ros2-swarm-pipeline:latest
+              image: ros2-swarm-pipeline:${COMMIT_SHA}
           EOF_OVERRIDE
 
       - name: Start ROS 2 nodes and verify DDS communication

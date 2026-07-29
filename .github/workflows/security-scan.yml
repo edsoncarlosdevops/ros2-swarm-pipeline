@@ -24,14 +24,10 @@ jobs:
       - name: Load Docker image
         run: |
           docker load -i /tmp/ros2-swarm-amd64.tar
-          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
+          COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:${COMMIT_SHA}
 
       - name: Run Trivy vulnerability scanner on Docker image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'ros2-swarm-pipeline:latest'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+        run: |
+          COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity HIGH,CRITICAL ros2-swarm-pipeline:${COMMIT_SHA}
