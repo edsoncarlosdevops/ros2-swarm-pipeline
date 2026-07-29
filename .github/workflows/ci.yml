@@ -171,12 +171,12 @@ jobs:
           echo "=== Waypoint Planner node logs (Python, navigation) ==="
           docker compose logs waypoint_planner --tail 10
 
-          # Verify all containers are running (not restarting or exited)
+          # Verify all 4 containers are running (not restarting or exited)
           RUNNING=$(docker compose ps --format json | grep -c '"running"' || true)
           echo "=== Running containers: $RUNNING/4 ==="
           
-          if [ "$RUNNING" -lt 3 ]; then
-            echo "ERROR: Expected at least 3 running containers, got $RUNNING"
+          if [ "$RUNNING" -lt 4 ]; then
+            echo "ERROR: Expected 4 running containers, got $RUNNING"
             echo "=== Full container status ==="
             docker compose ps -a
             echo "=== Publisher full logs ==="
