@@ -28,9 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Layer cache: Install Python dependencies before copying source
 # This layer only invalidates when setup.py or package.xml changes
+# NOTE: resource/ dir is required because setup.py references
+# 'resource/drone_telemetry' as a data_file (ament index marker)
 COPY ros2_nodes/drone_telemetry/setup.py \
      ros2_nodes/drone_telemetry/package.xml \
      /ros2_ws/src/drone_telemetry/
+COPY ros2_nodes/drone_telemetry/resource/ /ros2_ws/src/drone_telemetry/resource/
 RUN pip3 install --break-system-packages --no-cache-dir \
     /ros2_ws/src/drone_telemetry/
 
