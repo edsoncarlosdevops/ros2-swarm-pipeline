@@ -1,49 +1,192 @@
+# =============================================================================
+# GitLab CI/CD Pipeline — ROS 2 Swarm Pipeline
+#
+# Designed for on-prem GitLab + Harbor registry + heterogeneous runners.
+# Uses Kaniko for rootless container builds in Kubernetes pods.
+#
+# Runner tags required:
+#   - amd64, cpu      : Intel/AMD build machines
+#   - arm64, jetson   : Jetson / ARM edge devices
+#   - kubernetes      : K8s pods for Kaniko builds
+#   - gpu             : (optional) GPU-accelerated simulation
+#
+# Harbor registry: harbor.tii.ae/robotics/ros2-swarm
+# =============================================================================
+
 stages:
   - lint
   - build
-  - test
+  - etl
   - package
+  - integration
   - deploy
 
+# ---------------------------------------------------------------------------
+# Shared anchor: base ROS 2 environment with ccache
+# ---------------------------------------------------------------------------
 .base_ros2: &base_ros2
-  image: ros:humble-ros-base-jammy
+  image: ros:jazzy-ros-base
   before_script:
-    - apt-get update && apt-get install -y python3-pip python3-colcon-common-extensions ccache
+    - apt-get update -qq
+    - apt-get install -y -qq python3-pip python3-colcon-common-extensions ccache
+    - export CCACHE_DIR=${CI_PROJECT_DIR}/.ccache
+    - ccache -s
   cache:
-    key: \${CI_COMMIT_REF_SLUG}
+    key: ${CI_COMMIT_REF_SLUG}-ccache
     paths:
       - .ccache/
 
+# ---------------------------------------------------------------------------
+# Stage 1: Lint
+# ---------------------------------------------------------------------------
 lint:
   stage: lint
-  image: python:3.10-slim
+  image: python:3.12-slim
   script:
     - pip install flake8
-    - flake8 ros2_nodes/ --max-line-length=100
+    - flake8 ros2_nodes/ etl_pipeline/ --max-line-length=100
 
+# ---------------------------------------------------------------------------
+# Stage 2a: Colcon C++ Build (amd64)
+# ---------------------------------------------------------------------------
 build:amd64:
   stage: build
   tags: [amd64, cpu]
   <<: *base_ros2
   script:
-    - colcon build --symlink-install --parallel-workers \$(nproc)
+    - mkdir -p /ros2_ws/src && cp -r ${CI_PROJECT_DIR}/ros2_nodes/drone_bridge /ros2_ws/src/
+    - . /opt/ros/jazzy/setup.sh
+    - cd /ros2_ws && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+    - ccache -s
   artifacts:
     paths:
       - install/
 
+# ---------------------------------------------------------------------------
+# Stage 2b: Colcon C++ Build (arm64 — Jetson / edge)
+# ---------------------------------------------------------------------------
 build:arm64:
   stage: build
   tags: [arm64, jetson]
   <<: *base_ros2
   script:
-    - colcon build --symlink-install --parallel-workers \$(nproc)
+    - mkdir -p /ros2_ws/src && cp -r ${CI_PROJECT_DIR}/ros2_nodes/drone_bridge /ros2_ws/src/
+    - . /opt/ros/jazzy/setup.sh
+    - cd /ros2_ws && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+    - ccache -s
   artifacts:
     paths:
       - install/
 
-package:
-  stage: package
-  image: gcr.io/kaniko-project/executor:v1.14.0
+# ---------------------------------------------------------------------------
+# Stage 3: ETL Pipeline (generate MCAP → Parquet → validate)
+# ---------------------------------------------------------------------------
+etl:pipeline:
+  stage: etl
+  image: python:3.12-slim
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-pip
+    paths:
+      - ~/.cache/pip/
+  before_script:
+    - pip install --cache-dir ~/.cache/pip -r etl_pipeline/requirements.txt
   script:
-    - /kaniko/executor --context \${CI_PROJECT_DIR} --dockerfile \${CI_PROJECT_DIR}/docker/Dockerfile
-      --destination \${CI_REGISTRY_IMAGE}:\${CI_COMMIT_SHORT_SHA} --cache=true
+    - python etl_pipeline/mcap_to_parquet.py --generate-mcap --count=500
+    - python etl_pipeline/mcap_to_parquet.py
+    - python etl_pipeline/validate_parquet.py
+    - python etl_pipeline/validate_analytics.py
+    - python etl_pipeline/analyze_flight.py --report
+  artifacts:
+    paths:
+      - data/processed/
+
+# ---------------------------------------------------------------------------
+# Stage 4a: Kaniko Build — amd64 (rootless, K8s pod)
+# ---------------------------------------------------------------------------
+package:amd64:
+  stage: package
+  image: gcr.io/kaniko-project/executor:v1.23.0
+  tags: [kubernetes]
+  variables:
+    PLATFORM: linux/amd64
+  script:
+    - |
+      /kaniko/executor \
+        --context ${CI_PROJECT_DIR} \
+        --dockerfile ${CI_PROJECT_DIR}/docker/Dockerfile \
+        --destination ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}-amd64 \
+        --destination ${HARBOR_REGISTRY}/ros2-swarm:latest-amd64 \
+        --cache=true \
+        --cache-copy-layers \
+        --snapshot-mode=redo \
+        --use-new-run
+
+# ---------------------------------------------------------------------------
+# Stage 4b: Kaniko Build — arm64 (Jetson / edge devices)
+# ---------------------------------------------------------------------------
+package:arm64:
+  stage: package
+  image: gcr.io/kaniko-project/executor:v1.23.0-arm64
+  tags: [kubernetes]
+  variables:
+    PLATFORM: linux/arm64
+  script:
+    - |
+      /kaniko/executor \
+        --context ${CI_PROJECT_DIR} \
+        --dockerfile ${CI_PROJECT_DIR}/docker/Dockerfile \
+        --destination ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}-arm64 \
+        --destination ${HARBOR_REGISTRY}/ros2-swarm:latest-arm64 \
+        --cache=true \
+        --cache-copy-layers \
+        --snapshot-mode=redo \
+        --use-new-run
+
+# ---------------------------------------------------------------------------
+# Stage 4c: Create multi-arch manifest (optional — requires docker, not kaniko)
+# ---------------------------------------------------------------------------
+manifest:
+  stage: package
+  image: docker:24-cli
+  needs: [package:amd64, package:arm64]
+  variables:
+    DOCKER_CONFIG: /kaniko/.docker
+  script:
+    - docker manifest create ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}
+      --amend ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}-amd64
+      --amend ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}-arm64
+    - docker manifest push ${HARBOR_REGISTRY}/ros2-swarm:${CI_COMMIT_SHORT_SHA}
+    - docker manifest create ${HARBOR_REGISTRY}/ros2-swarm:latest
+      --amend ${HARBOR_REGISTRY}/ros2-swarm:latest-amd64
+      --amend ${HARBOR_REGISTRY}/ros2-swarm:latest-arm64
+    - docker manifest push ${HARBOR_REGISTRY}/ros2-swarm:latest
+
+# ---------------------------------------------------------------------------
+# Stage 5: Integration test (Docker Compose DDS verification)
+# ---------------------------------------------------------------------------
+integration:
+  stage: integration
+  image: docker:24-compose
+  needs: [package:amd64]
+  services:
+    - docker:dind
+  script:
+    - docker compose up -d
+    - sleep 10
+    - docker compose logs drone_bridge | grep -i "CROSS-LANGUAGE DDS OK"
+    - docker compose logs telemetry_sub | grep -i "Records written"
+    - docker compose down
+
+# ---------------------------------------------------------------------------
+# Stage 6: Deploy to edge devices (Jetson drone fleet)
+# ---------------------------------------------------------------------------
+deploy:edge:
+  stage: deploy
+  tags: [jetson, edge]
+  only:
+    - main
+  script:
+    - docker pull ${HARBOR_REGISTRY}/ros2-swarm:latest-arm64
+    - docker compose up -d
+  environment:
+    name: edge/drone-fleet

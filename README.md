@@ -99,25 +99,25 @@ real-world technical requirements for multi-drone swarm operations.
 ### Communication Topology
 
 ```
-  ┌────────────────────────────────────────────────────────────────────--┐
+  ┌──────────────────────────────────────────────────────────────────────┐
   │                        ROS 2 Domain (ID: 42)                         │
   │                                                                      │
-  │  ┌──────────────────-┐            ┌───────────────────────────────┐  │
-  │  │ telemetry_pub_python     │            │ telemetry_sub_python                 │  │
-  │  │ (Python, rclpy)   │─────────-─-│ (Python, rclpy)               │  │
+  │  ┌───────────────────┐            ┌───────────────────────────────┐  │
+  │  │ telemetry_pub     │            │ telemetry_sub                 │  │
+  │  │ (Python, rclpy)   │─────────▶. │ (Python, rclpy)               │  │
   │  │ 10 Hz Odometry    │  /drone    │ Subscribes & logs             │  │
   │  │ publisher         │  /odometry │ Feeds into ETL pipeline       │  │
-  │  └──────────────────-┘            └───────────────────────────────┘  │
+  │  └───────────────────┘            └───────────────────────────────┘  │
   │         │                                                            │
   │         │  /drone/odometry (nav_msgs/Odometry)                       │
   │         │                                                            │
   │         ▼                                                            │
-  │  ┌─────────────────────────────────────────────────────────────-┐    │
-  │  │ telemetry_sub_cpp (C++, rclcpp)                                   │    │
+  │  ┌──────────────────────────────────────────────────────────────┐    │
+  │  │ telemetry_sub_cpp (C++, rclcpp)                              │    │
   │  │ Cross-language DDS: Python → C++                             │    │
   │  │ Auto-shutdown after 30s without messages                     │    │
   │  │ Health checks, status logging                                │    │
-  │  └─────────────────────────────────────────────────────────────-┘    │
+  │  └──────────────────────────────────────────────────────────────┘    │
   │         │                                                            │
   │         │  /drone/odometry (same topic, different language)          │
   │         ▼                                                            │
@@ -126,7 +126,7 @@ real-world technical requirements for multi-drone swarm operations.
   │  │ (Python, rclpy)  │                                                │
   │  │ Navigation logic │                                                │
   │  └──────────────────┘                                                │
-  └────────────────────────────────────────────────────────────────────--┘
+  └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Cross-Language DDS
@@ -135,7 +135,7 @@ One of the key architectural decisions is demonstrating that ROS 2's DDS
 middleware is truly language-agnostic:
 
 ```
-Python Publisher (telemetry_pub_python)  ──DDS──▶  C++ Subscriber (telemetry_sub_cpp)
+Python Publisher (telemetry_pub)  ──DDS──▶  C++ Subscriber (telemetry_sub_cpp)
         │                                               │
         │  Topic: /drone/odometry                       │  "CROSS-LANGUAGE DDS OK!"
         │  Type: nav_msgs/Odometry                      │  "Python -> C++ via DDS"
@@ -155,10 +155,10 @@ This proves that:
 The ETL pipeline processes drone telemetry through three stages:
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────-┐
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌───────────┐
 │   MCAP   │────▶│  Parquet │────▶│  DuckDB  │────▶│  Report   │
-│ (CDR CDR)│     │  (Zstd)  │     │   SQL    │     │  (Console)│
-└──────────┘     └──────────┘     └──────────┘     └──────────-┘
+│   MCAP   │     │  (Zstd)  │     │   SQL    │     │  (Console)│
+└──────────┘     └──────────┘     └──────────┘     └───────────┘
      │               │               │               │
      │ CDR ROS2      │ Columnar      │ SQL queries   │ Aggregated
      │ binary        │ compression   │ via Python    │ statistics
@@ -240,12 +240,12 @@ software components receive mock sensor data that mimics real drone hardware:
 ┌─────────────────────────────────────────────────────────────┐
 │                  HIL Simulation Setup                       │
 │                                                             │
-│  ┌──────────────────┐        ┌──────────────────────────-┐  │
-│  │ waypoint_planner │───────▶│  telemetry_sub_cpp (C++)       │  │
+│  ┌──────────────────┐        ┌───────────────────────────┐  │
+│  │ waypoint_planner │───────▶│  telemetry_sub_cpp (C++)  │  │
 │  │ (mock navigation)│        │  Receives mock Odometry   │  │
 │  │ generates fake   │        │  as if from real drone    │  │
 │  │ GPS waypoints    │        │  sensors                  │  │
-│  └──────────────────┘        └──────────────────────────-┘  │
+│  └──────────────────┘        └───────────────────────────┘  │
 │         │                              │                    │
 │         │  /drone/cmd_vel              │  /drone/odometry   │
 │         ▼                              ▼                    │
@@ -499,13 +499,13 @@ The pipeline uses **three levels of caching** to minimize build times:
 
 ```
 Level 1: Compiler Cache (ccache)
-┌─────────────────────────────────────────────────────--┐
+┌───────────────────────────────────────────────────────┐
 │  Path: /root/.ccache (persisted via actions/cache)    │
 │  Key: runner + package-path + commit SHA              │
 │  Restore: runner + package-path (fallback)            │
 │  Max: 500MB                                           │
 │  Hit: ~8s savings on C++ rebuild                      │
-└─────────────────────────────────────────────────────--┘
+└───────────────────────────────────────────────────────┘
 
 Level 2: Docker Layer Cache (Buildx)
 ┌────────────────────────────────────────────────────--─┐
@@ -514,15 +514,15 @@ Level 2: Docker Layer Cache (Buildx)
 │  Restore: runner + service-name + arch (fallback)     │
 │  Strategy: layer ordering (deps before source)        │
 │  Hit: ~60s savings on Docker rebuild                  │
-└─────────────────────────────────────────────────────--┘
+└───────────────────────────────────────────────────────┘
 
 Level 3: Dependency Cache (pip)
-┌─────────────────────────────────────────────────────-┐
+┌──────────────────────────────────────────────────────┐
 │  Path: ~/.cache/pip (persisted via actions/cache)    │
 │  Key: runner + hash of requirements.txt              │
 │  Restore: runner (fallback)                          │
 │  Hit: ~10s savings on pip install                    │
-└─────────────────────────────────────────────────────-┘
+└──────────────────────────────────────────────────────┘
 ```
 
 ### Shared Templates
@@ -542,19 +542,19 @@ without duplicating code:
 - Encapsulate complex logic (e.g., multi-arch Docker setup)
 
 ```
-                    ┌──────────────────────-----┐
+                    ┌──────────────────────---──┐
                     │  Team repositories        │
                     │  (call via workflow_call) │
-                    └──────────────────────-----┘
+                    └──────────────────────---──┘
                              │
                              ▼
                     ┌─────────────────────----─┐
                     │  Shared Workflows        │
                     │  (lint, etl, build)      │
-                    └──────────────────────----┘
+                    └──────────────────────--──┘
                              │
                              ▼
-                    ┌──────────────────────----┐
+                    ┌──────────────────────--──┐
                     │  Composite Actions       │
                     │  (setup, colcon, docker) │
                     └─────────────────────----─┘
