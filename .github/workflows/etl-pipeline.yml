@@ -68,3 +68,9 @@ jobs:
           python etl_pipeline/validate_parquet.py
           echo "parquet_path=data/processed/flight_data.parquet" >> $GITHUB_OUTPUT
 
+      - name: Upload Parquet dataset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-data-parquet
+          path: data/processed/flight_data.parquet
+          if-no-files-found: error
