@@ -32,7 +32,7 @@ COPY ros2_nodes/drone_telemetry/setup.py \
      ros2_nodes/drone_telemetry/package.xml \
      /ros2_ws/src/drone_telemetry/
 RUN pip3 install --break-system-packages --no-cache-dir \
-    /ros2_ws/src/drone_telemetry/ 2>/dev/null || true
+    /ros2_ws/src/drone_telemetry/
 
 # Layer cache: Copy full source and reinstall (fast if deps are cached)
 COPY ros2_nodes/drone_telemetry/ /ros2_ws/src/drone_telemetry/
@@ -109,7 +109,7 @@ RUN chmod +x /entrypoint.sh
 # Copy source code AND reinstall to make console_scripts available
 COPY --from=builder-python /ros2_ws/src/drone_telemetry /ros2_ws/src/drone_telemetry
 RUN pip3 install --break-system-packages --no-cache-dir \
-    /ros2_ws/src/drone_telemetry/ 2>/dev/null || true
+    /ros2_ws/src/drone_telemetry/
 
 # C++ ROS 2 packages (compiled in builder-cpp stage)
 # Only install directory is needed; build directory excluded

@@ -32,6 +32,12 @@ services:
       - ros2_swarm
     environment:
       - ROS_DOMAIN_ID=42
+    healthcheck:
+      test: ["CMD-SHELL", "source /opt/ros/jazzy/setup.bash && ros2 topic list 2>/dev/null | grep -q '/drone/odometry' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   # --- Node 2: Subscribes to /drone/odometry and records MCAP for ETL - PYTHON (telemetry_sub_python) ---
   telemetry_sub:
@@ -41,7 +47,8 @@ services:
     container_name: drone_telemetry_sub
     command: telemetry_sub_python
     depends_on:
-      - telemetry_pub
+      telemetry_pub:
+        condition: service_healthy
     volumes:
       - ./data/raw:/ros2_ws/data/raw
     networks:
@@ -58,7 +65,8 @@ services:
     container_name: waypoint_planner_python
     command: waypoint_planner_python
     depends_on:
-      - telemetry_pub
+      telemetry_pub:
+        condition: service_healthy
     networks:
       - ros2_swarm
     environment:
@@ -73,7 +81,8 @@ services:
     container_name: telemetry_sub_cpp
     command: ros2 run drone_bridge telemetry_sub_cpp
     depends_on:
-      - telemetry_pub
+      telemetry_pub:
+        condition: service_healthy
     networks:
       - ros2_swarm
     environment:

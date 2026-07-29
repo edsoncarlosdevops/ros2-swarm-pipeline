@@ -123,6 +123,32 @@ jobs:
       - name: Setup Docker Compose
         run: docker compose version
 
+      - name: Download Docker image (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ros2-swarm-image-amd64
+          path: /tmp
+
+      - name: Load Docker image and tag
+        run: |
+          docker load -i /tmp/ros2-swarm-amd64.tar
+          docker tag ghcr.io/${{ github.repository }}:latest-amd64 ros2-swarm-pipeline:latest
+          docker image ls ros2-swarm-pipeline:latest
+        
+      - name: Override docker-compose to use prebuilt image
+        run: |
+          cat > docker-compose.override.yml << 'EOF'
+          services:
+            telemetry_pub:
+              image: ros2-swarm-pipeline:latest
+            telemetry_sub:
+              image: ros2-swarm-pipeline:latest
+            waypoint_planner:
+              image: ros2-swarm-pipeline:latest
+            drone_bridge:
+              image: ros2-swarm-pipeline:latest
+          EOF
+
       - name: Start ROS 2 nodes and verify DDS communication
         run: |
           docker compose up -d

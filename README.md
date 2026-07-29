@@ -427,6 +427,16 @@ The analysis runs several queries:
 
 If any assertion fails, the pipeline stops and reports the error.
 
+**💡 Why doesn't `analyze` wait for `colcon-build` or `docker-build`?**
+
+The `analyze` job validates the **data pipeline only** — it reads Parquet files
+generated synthetically by the `etl` job. It does NOT depend on C++ compilation
+or Docker images because:
+
+1. The ETL job generates mock telemetry data (MCAP → Parquet) without any ROS 2 nodes
+2. DuckDB SQL queries run directly on Parquet files — no ROS 2 runtime needed
+3. This separation keeps the CI graph efficient: data analytics and C++ builds run in parallel
+
 #### Stage 4: Colcon C++ Build
 
 | Property | Value |

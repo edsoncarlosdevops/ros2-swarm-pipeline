@@ -53,3 +53,16 @@ jobs:
           source /ros2_ws/install/setup.bash 2>/dev/null
           ros2 run drone_bridge telemetry_sub_cpp --help 2>&1 | head -1
           " && echo "[OK] C++ node: telemetry_sub_cpp"
+      
+      - name: Save Docker image as artifact
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:latest-${{ matrix.arch }}"
+          docker save "$IMAGE" -o /tmp/ros2-swarm-${{ matrix.arch }}.tar
+          echo "Image saved: $(ls -lh /tmp/ros2-swarm-${{ matrix.arch }}.tar)"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ros2-swarm-image-${{ matrix.arch }}
+          path: /tmp/ros2-swarm-${{ matrix.arch }}.tar
+          retention-days: 1
