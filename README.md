@@ -100,17 +100,17 @@ real-world technical requirements for multi-drone swarm operations.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────────┐
-  │                          ROS 2 Domain (ID: 42)                          │
-  │                                                                         │
+  │                          ROS 2 Domain (ID: 42)                           │
+  │                                                                          │
   │  ┌───────────────────┐              ┌─────────────────────────────────┐  │
   │  │ telemetry_pub     │              │ telemetry_sub                   │  │
   │  │ (Python, rclpy)   │──────────▶   │ (Python, rclpy)                 │  │
   │  │ 10 Hz Odometry    │  /drone      │ Subscribes & records MCAP       │  │
   │  │ publisher         │  /odometry   │ Feeds into ETL pipeline         │  │
   │  └───────────────────┘              └─────────────────────────────────┘  │
-  │         │                                                               │
-  │         │  /drone/odometry (nav_msgs/Odometry)                          │
-  │         │                                                               │
+  │         │                                                                │
+  │         │  /drone/odometry (nav_msgs/Odometry)                           │
+  │         │                                                                │
   │         ├───────────────────────────────────────────────┐                │
   │         │                                               │                │
   │         ▼                                               ▼                │
@@ -161,9 +161,9 @@ The telemetry platform uses a **Medallion Data Lake Pattern** designed for high-
 │   MCAP (CDR)    │      │ Parquet (Zstd)  │      │ Altitude Binned │      │  DuckDB / SQL   │
 └─────────────────┘      └─────────────────┘      └─────────────────┘      └─────────────────┘
      │                        │                        │                        │
-     │ High-speed DDS         │ Columnar format        │ Partitioned dataset    │ In-memory OLAP  │
-     │ zero-overhead record   │ 5-10x compression      │ low / mid / high alt   │ SQL reporting   │
-```
+     │ High-speed DDS         │ Columnar format        │ Partitioned dataset    │ In-memory OLAP  
+     │ zero-overhead record   │ 5-10x compression      │ low / mid / high alt   │ SQL reporting 
+``` 
 
 **1. Bronze Layer (Raw Storage - MCAP / CDR)**
 - Drones publish telemetry at 10–100 Hz over Fast DDS.
@@ -246,15 +246,15 @@ software components receive mock sensor data that mimics real drone hardware:
 │         │  /drone/odometry                                      │
 │         ▼                                                       │
 │  ┌────────────────────┐                                         │
-│  │ waypoint_planner   │──▶ /drone/cmd_vel ──▶ [not consumed]   │
+│  │ waypoint_planner   │──▶ /drone/cmd_vel ──▶ [not consumed]    │
 │  │ (mock navigation)  │    (open-loop demo)                     │
 │  │ computes velocity  │                                         │
 │  │ towards waypoints  │                                         │
 │  └────────────────────┘                                         │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │            DDS Middleware (Fast DDS)                      │   │
-│  │       Same protocol used on real drones                   │   │
+│  │            DDS Middleware (Fast DDS)                     │   │
+│  │       Same protocol used on real drones                  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
