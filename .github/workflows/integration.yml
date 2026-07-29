@@ -38,6 +38,10 @@ jobs:
               image: ros2-swarm-pipeline:latest
             telemetry_sub:
               image: ros2-swarm-pipeline:latest
+              environment:
+                - ROS_DOMAIN_ID=42
+                - TELEMETRY_DATA_DIR=/tmp/data/raw
+              volumes: []
             waypoint_planner:
               image: ros2-swarm-pipeline:latest
             drone_bridge:

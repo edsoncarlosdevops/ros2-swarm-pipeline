@@ -121,9 +121,11 @@ COPY --from=builder-cpp /ros2_ws/install /ros2_ws/install
 # ETL pipeline scripts
 COPY etl_pipeline/ /ros2_ws/etl_pipeline/
 
-# Create non-root user for security hardening
-RUN useradd -m -u 1001 ros && \
-    chown -R ros:ros /ros2_ws /entrypoint.sh
+# Create data directories and non-root user for security hardening
+RUN mkdir -p /ros2_ws/data/raw /ros2_ws/data/processed && \
+    useradd -m -u 1001 ros && \
+    chown -R ros:ros /ros2_ws /entrypoint.sh && \
+    chmod -R 777 /ros2_ws/data
 
 USER ros
 WORKDIR /ros2_ws
