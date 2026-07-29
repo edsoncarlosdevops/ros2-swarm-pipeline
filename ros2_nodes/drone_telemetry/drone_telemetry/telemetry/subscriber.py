@@ -24,7 +24,7 @@ Key concepts demonstrated:
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-from rosbag2_py import SequentialWriter, StorageOptions, RecordOptions
+from rosbag2_py import SequentialWriter, StorageOptions
 from pathlib import Path
 import os
 import signal
