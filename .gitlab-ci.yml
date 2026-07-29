@@ -180,7 +180,7 @@ security:trivy:
 integration:
   stage: integration
   image: docker:24-compose
-  needs: [package:amd64]
+  needs: ["security:trivy"]
   services:
     - docker:dind
   script:

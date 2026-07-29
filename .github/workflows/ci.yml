@@ -146,7 +146,7 @@ jobs:
   integration:
     name: Docker Compose Integration
     runs-on: ubuntu-latest
-    needs: [build-docker]
+    needs: [security-scan]
 
     steps:
       - uses: actions/checkout@v4

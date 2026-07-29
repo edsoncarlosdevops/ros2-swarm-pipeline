@@ -57,25 +57,14 @@ class DroneTelemetrySubscriber(Node):
             uri=bag_path,
             storage_id='mcap'  # ← MCAP format (ROS 2 native)
         )
-        record_options = RecordOptions()
-        if hasattr(record_options, 'record_topics'):
-            record_options.record_topics = ['/drone/odometry']
-        elif hasattr(record_options, 'topics'):
-            record_options.topics = ['/drone/odometry']
+        from rosbag2_py import ConverterOptions
+        converter_options = ConverterOptions(
+            input_serialization_format='cdr',
+            output_serialization_format='cdr'
+        )
 
         self.writer = SequentialWriter()
-        try:
-            self.writer.open(storage_options, record_options)
-        except TypeError:
-            # Fallback for rosbag2_py API variants
-            self.writer.open(storage_options)
-            from rosbag2_py import TopicMetadata
-            topic_info = TopicMetadata(
-                name='/drone/odometry',
-                type='nav_msgs/msg/Odometry',
-                serialization_format='cdr'
-            )
-            self.writer.create_topic(topic_info)
+        self.writer.open(storage_options, converter_options)
 
         # === Subscribers ===
         self.odom_sub = self.create_subscription(
