@@ -18,6 +18,7 @@ stages:
   - build
   - etl
   - package
+  - security
   - integration
   - deploy
 
@@ -162,7 +163,19 @@ manifest:
     - docker manifest push ${HARBOR_REGISTRY}/ros2-swarm:latest
 
 # ---------------------------------------------------------------------------
-# Stage 5: Integration test (Docker Compose DDS verification)
+# Stage 5: Container Security Scan (Trivy)
+# ---------------------------------------------------------------------------
+security:trivy:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  needs: ["package:amd64"]
+  script:
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL ${HARBOR_REGISTRY}/ros2-swarm:latest-amd64
+
+# ---------------------------------------------------------------------------
+# Stage 6: Integration (Docker Compose on test runner)
 # ---------------------------------------------------------------------------
 integration:
   stage: integration

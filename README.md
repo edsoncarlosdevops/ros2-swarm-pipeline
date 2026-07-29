@@ -69,6 +69,7 @@ real-world technical requirements for multi-drone swarm operations.
 | **Shared CI templates** | Reusable workflows and composite actions that any team can use without duplication. |
 | **Three-level caching** | ccache (compiler), Docker layers (container), pip (dependencies) — each with persistence. |
 | **Auto-shutdown CI node** | C++ node detects missing publisher and shuts down gracefully after 30s, preventing CI hangs. |
+| **Security Scanning** | Container image security scanning using Trivy for OS and library CVE vulnerability assessment. |
 | **Kaniko-ready architecture** | Dockerfile designed for both Buildx (GitHub Actions) and Kaniko (GitLab CI/K8s) — secure, rootless builds. |
 | **Dev Containers** | Environment-as-code via `.devcontainer/devcontainer.json` — eliminates "works on my machine" with reproducible environments. |
 | **HIL-ready simulation** | `telemetry_sub_cpp` + `waypoint_planner_python` mock Hardware-in-the-Loop: nodes receive simulated sensor data as if on real drone hardware. `waypoint_planner` publishes `cmd_vel` in open-loop (demonstration only — not consumed by any node). |
@@ -367,13 +368,15 @@ correct execution order.
                │                                               │
                ▼                                               ▼
     ┌─────────────────────────┐                    ┌───────────────────────┐
-    │  analyze (DuckDB SQL)   │                    │  integration          │
-    │   Queries + assertions  │                    │  Docker Compose test  │
-    └─────────────────────────┘                    └───────────────────────┘
-
-    Note: A single Docker image contains all 4 ROS 2 nodes
-    (Python pub/sub/waypoint + C++ bridge). The docker-compose.yml
-    entrypoint selects which process to run per container.
+    │  analyze (DuckDB SQL)   │                    │ security-scan (Trivy) │
+    │   Queries + assertions  │                    │ Vulnerability Scan    │
+    └─────────────────────────┘                    └───────────┬───────────┘
+                                                               │
+                                                               ▼
+                                                   ┌───────────────────────┐
+                                                   │  integration          │
+                                                   │  Docker Compose test  │
+                                                   └───────────────────────┘
 ```
 
 ### Stage Details
