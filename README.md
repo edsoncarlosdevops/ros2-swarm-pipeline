@@ -348,9 +348,9 @@ The pipeline is organized as a **dependency graph** where each job only starts
 after its dependencies complete. This maximizes parallelism while maintaining
 correct execution order.
 
-### Two Parallel Pipeline Tracks (DAG Architecture)
+### Parallel DAG Pipeline Architecture
 
-The CI/CD orchestrator (`ci.yml`) is architected as a **Directed Acyclic Graph (DAG)** split into **2 parallel independent tracks** for maximum build performance:
+The CI/CD orchestrator (`ci.yml`) is architected as a **Directed Acyclic Graph (DAG)** split into parallel independent tracks for maximum build performance:
 
 ```
                                ┌───────────────────────────────────┐
@@ -358,36 +358,31 @@ The CI/CD orchestrator (`ci.yml`) is architected as a **Directed Acyclic Graph (
                                │          (Flake8 Lint)            │
                                └─────────────────┬─────────────────┘
                                                  │
-                  ┌──────────────────────────────┴──────────────────────────────┐
-                  │ TRACK A: Data Engineering & Analytics                       │ TRACK B: Infrastructure & ROS 2 Containers
-                  ▼                                                             ▼
-    ┌───────────────────────────┐                                 ┌───────────────────────────┐
-    │ Stage 2: etl-pipeline     │                                 │ Stage 4: colcon-build     │
-    │ (Synthetic MCAP ➔ Parquet)│                                 │ (C++ colcon + ccache)     │
-    └─────────────┬─────────────┘                                 └───────────────────────────┘
-                  │                                                             │
-                  ▼                                                             ▼
-    ┌───────────────────────────┐                                 ┌───────────────────────────┐
-    │ Stage 3: analyze          │                                 │ Stage 5: build-docker     │
-    │ (DuckDB SQL + Assertions) │                                 │ (Multi-arch amd64+arm64)  │
-    └───────────────────────────┘                                 └─────────────┬─────────────┘
-                                                                                │
-                                                                                ▼
-                                                                  ┌───────────────────────────┐
-                                                                  │ Stage 5.5: security-scan  │
-                                                                  │ (Trivy Container Scan)    │
-                                                                  └─────────────┬─────────────┘
-                                                                                │
-                                                                                ▼
-                                                                  ┌───────────────────────────┐
-                                                                  │ Stage 6: integration      │
-                                                                  │ (Docker Compose 4 Nodes)  │
-                                                                  └───────────────────────────┘
+            ┌────────────────────────────────────┼────────────────────────────────────┐
+            │ TRACK A: Data & Analytics          │ TRACK B1: Native C++ Build Validation│ TRACK B2: Container & DDS Pipeline
+            ▼                                    ▼                                    ▼
+┌───────────────────────────┐        ┌───────────────────────────┐        ┌───────────────────────────┐
+│ Stage 2: etl-pipeline     │        │ Stage 4: colcon-build     │        │ Stage 5: build-docker     │
+│ (Synthetic MCAP ➔ Parquet)│        │ (Native C++ + ccache test)│        │ (Multi-arch amd64+arm64)  │
+└─────────────┬─────────────┘        └───────────────────────────┘        └─────────────┬─────────────┘
+              │                                                                         │
+              ▼                                                                         ▼
+┌───────────────────────────┐                                             ┌───────────────────────────┐
+│ Stage 3: analyze          │                                             │ Stage 5.5: security-scan  │
+│ (DuckDB SQL + Assertions) │                                             │ (Trivy Container Scan)    │
+└───────────────────────────┘                                             └─────────────┬─────────────┘
+                                                                                        │
+                                                                                        ▼
+                                                                          ┌───────────────────────────┐
+                                                                          │ Stage 6: integration      │
+                                                                          │ (Docker Compose 4 Nodes)  │
+                                                                          └───────────────────────────┘
 ```
 
-**Why 2 Parallel Tracks?**
-1. **Track A (Data & Analytics)**: Fast verification of data transformations and SQL reporting using synthetic MCAPs in ~35s. It does not require building heavy C++ binaries or starting full ROS 2 Docker containers.
-2. **Track B (Infrastructure & Simulation)**: Verifies C++ compilation, builds multi-arch Docker containers (`amd64` + `arm64`), executes **Trivy Container Security Scans**, and runs the 4-node live Docker Compose integration test over Fast DDS.
+**Pipeline Track Breakdown:**
+1. **Track A (Data Engineering & Analytics)**: Fast verification of data transformations and SQL reporting using synthetic MCAPs in ~35s. It runs independently of ROS 2 or Docker environments.
+2. **Track B1 (Native C++ Compilation & ccache Validation)**: Standalone job testing C++ node compilation with `colcon` (`ament_cmake`). It validates native compiler toolchains, header availability, and verifies compiler-level caching (`ccache`) efficiency (~5s on cache hit).
+3. **Track B2 (Container Security & Live DDS Simulation)**: Builds multi-arch Docker containers (`amd64` + `arm64`), runs **Trivy Container Security Scans**, and executes live 4-node Docker Compose integration testing over Fast DDS.
 
 ### Stage Details
 
