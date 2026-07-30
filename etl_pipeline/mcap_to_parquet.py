@@ -63,7 +63,7 @@ def extract_mcap(raw_path):
     types_found = set()
 
     with open(path, "rb") as f:
-        # First, discover the schema encoding
+        # Discover schema encoding
         reader = make_reader(f)
         schema_sample = None
         for s, c, m in reader.iter_messages():
@@ -75,7 +75,7 @@ def extract_mcap(raw_path):
         is_ros2_cdr = (encoding == "ros2msg")
 
         if is_ros2_cdr and ROS2_AVAILABLE:
-            # CDR ROS2 -> use DecoderFactory
+            # CDR ROS 2 zero-copy stream decoding using mcap_ros2 DecoderFactory
             print(f"[EXTRACT] Encoding: ros2msg (CDR ROS2)")
             reader = make_reader(f, decoder_factories=[DecoderFactory()])
             for schema, channel, message, ros_msg in reader.iter_decoded_messages():
@@ -93,7 +93,6 @@ def extract_mcap(raw_path):
                 _extract_ros2_fields(ros_msg, msg_type, entry)
                 records.append(entry)
         else:
-            # Should not happen for properly generated MCAP files
             raise RuntimeError(
                 f"Unsupported MCAP encoding: {encoding}. "
                 "Only ros2msg (CDR ROS2) is supported. "
@@ -148,7 +147,15 @@ def _extract_ros2_fields(msg, msg_type, entry):
 
 
 def transform(data):
-    """Calculate derived fields: distance, speed, acceleration"""
+    """
+    Transform Stage: Calculate derived kinematic physical metrics.
+    
+    Rationale:
+    - Euclidean step distance delta: dist = sqrt(dx^2 + dy^2 + dz^2)
+    - Scalar speed: v = dist / dt (m/s)
+    - Instantaneous acceleration vectors: a = (v_current - v_previous) / dt (m/s^2)
+    Computing these during Transform eliminates redundant calculations in downstream SQL analytics.
+    """
     print(f"\n[TRANSFORM] {len(data)} records...")
     data.sort(key=lambda x: x["timestamp"])
 
@@ -159,10 +166,13 @@ def transform(data):
             dy = d.get("y", 0) - prev.get("y", 0)
             dz = d.get("z", 0) - prev.get("z", 0)
             dt = d["timestamp"] - prev["timestamp"]
+            
+            # Euclidean 3D distance delta between consecutive telemetry frames
             dist = (dx * dx + dy * dy + dz * dz) ** 0.5
             d["distance_delta"] = round(dist, 3)
             d["speed_ms"] = round(dist / dt if dt > 0 else 0, 3)
 
+            # Numerical acceleration vector derivatives: a = dv / dt
             if "vx" in d and "vx" in prev:
                 d["ax"] = round((d["vx"] - prev["vx"]) / dt if dt > 0 else 0, 3)
                 d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt if dt > 0 else 0, 3)
@@ -182,7 +192,14 @@ def transform(data):
 
 
 def load_parquet(data, parquet_path):
-    """Load data into DuckDB and export as Parquet"""
+    """
+    Load Stage: Register in-memory Pandas DataFrame with DuckDB and export to Parquet.
+    
+    Storage Rationale:
+    - DuckDB registers the DataFrame zero-copy and writes to Apache Parquet with Zstd compression.
+    - Columnar storage reduces disk footprint by 5-10x vs raw JSON/CSV.
+    - Partitioning by altitude_bin enables predicate pushdown for flight envelope SQL queries.
+    """
     parquet_path = Path(parquet_path)
     base_dir = parquet_path.parent
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +211,8 @@ def load_parquet(data, parquet_path):
     con.register("flight_df", df)
     con.execute("CREATE OR REPLACE TABLE flight AS SELECT * FROM flight_df")
 
-    con.execute(f"COPY flight TO '{parquet_path}' (FORMAT PARQUET, CODEC 'ZSTD')")
+    # Export main Parquet dataset with Zstd compression
+    con.execute(f"COPY flight TO '{parquet_path}' (FORMAT PARQUET, COMPRESSION ZSTD)")
     size = parquet_path.stat().st_size
     print(f"[LOAD] Main: {parquet_path} ({size/1024:.1f} KB, Zstd)")
 
