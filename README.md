@@ -99,37 +99,35 @@ real-world technical requirements for multi-drone swarm operations.
 
 ### Communication Topology
 
-```
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │                          ROS 2 Domain (ID: 42)                           │
-  │                                                                          │
-  │  ┌───────────────────┐              ┌─────────────────────────────────┐  │
-  │  │ telemetry_pub     │              │ telemetry_sub                   │  │
-  │  │ (Python, rclpy)   │──────────▶   │ (Python, rclpy)                 │  │
-  │  │ 10 Hz Odometry    │  /drone      │ Subscribes & records MCAP       │  │
-  │  │ publisher         │  /odometry   │ Feeds into ETL pipeline         │  │
-  │  └───────────────────┘              └─────────────────────────────────┘  │
-  │         │                                                                │
-  │         │  /drone/odometry (nav_msgs/Odometry)                           │
-  │         │                                                                │
-  │         ├───────────────────────────────────────────────┐                │
-  │         │                                               │                │
-  │         ▼                                               ▼                │
-  │  ┌─────────────────────────────────────────┐   ┌──────────────────────┐  │
-  │  │ telemetry_sub_cpp (C++, rclcpp)         │   │ waypoint_planner     │  │
-  │  │ Cross-language DDS: Python → C++        │   │ (Python, rclpy)      │  │
-  │  │ Auto-shutdown 30s without messages      │   │ Mock navigation      │  │
-  │  │ Health checks, status logging           │   │                      │  │
-  │  └─────────────────────────────────────────┘   │  /drone/cmd_vel ──▶  │  │
-  │                                                │  [not consumed]      │  │
-  │                                                │  (open-loop demo)    │  │
-  │                                                └──────────────────────┘  │
-  └──────────────────────────────────────────────────────────────────────────┘
+The platform operates **4 distinct ROS 2 nodes** interacting over Fast DDS middleware in a Star Topology:
 
-  NOTE: waypoint_planner subscribes to /drone/odometry and publishes
-  /drone/cmd_vel, but no node consumes cmd_vel. This is an open-loop
-  demonstration of topic-based navigation — not a closed control loop.
 ```
+                          ┌─────────────────────────────────────────┐
+                          │   Node 1: telemetry_pub_python (Py)     │
+                          │   Simulates flight & publishes 10 Hz    │
+                          └────────────────────┬────────────────────┘
+                                               │
+                                     Topic: /drone/odometry
+                                     Format: nav_msgs/Odometry
+                                               │
+             ┌─────────────────────────────────┼─────────────────────────────────┐
+             │                                 │                                 │
+             ▼                                 ▼                                 ▼
+┌─────────────────────────┐       ┌─────────────────────────┐       ┌─────────────────────────┐
+│ Node 2: subscriber (Py) │       │ Node 3: bridge (C++)    │       │ Node 4: planner (Py)    │
+│ Ingestion: Records raw  │       │ Real-Time DDS Proof:    │       │ Navigation: Consumes    │
+│ MCAP binary to disk     │       │ Receives CDR in C++     │       │ position, calculates    │
+│ (data/raw/flight_mcap)  │       │ (Fast DDS cross-lang)   │       │ /drone/cmd_vel targets │
+└─────────────────────────┘       └─────────────────────────┘       └─────────────────────────┘
+```
+
+**Node Roles & Inter-Node Relationship:**
+- **Node 1 (`telemetry_pub_python`)**: The primary data source. Publishes simulated 3D position and kinematic velocities at 10 Hz to `/drone/odometry`.
+- **Node 2 (`telemetry_sub_python`)**: Data Ingestion Node. Subscribes to Node 1's odometry stream and writes raw binary **MCAP** frames to disk (`data/raw/`). This is the raw data source for post-flight ETL processing.
+- **Node 3 (`telemetry_sub_cpp`)**: Production C++ Bridge. Subscribes to Node 1's odometry stream in native C++ (`rclcpp`), demonstrating zero-copy cross-language DDS interop (Python ➔ C++) required for high-frequency control loops.
+- **Node 4 (`waypoint_planner_python`)**: Navigation Node. Subscribes to Node 1's odometry to track current coordinates, calculates proportional velocity vectors towards waypoints, and publishes targets to `/drone/cmd_vel`.
+
+> **Note:** Nodes do not pass data sequentially in a chain. Node 1 broadcasts over Fast DDS, and Nodes 2, 3, and 4 consume the odometry stream simultaneously in parallel.
 
 ### Cross-Language DDS
 
@@ -350,37 +348,46 @@ The pipeline is organized as a **dependency graph** where each job only starts
 after its dependencies complete. This maximizes parallelism while maintaining
 correct execution order.
 
+### Two Parallel Pipeline Tracks (DAG Architecture)
+
+The CI/CD orchestrator (`ci.yml`) is architected as a **Directed Acyclic Graph (DAG)** split into **2 parallel independent tracks** for maximum build performance:
+
 ```
-                          ┌─────────────────────────────────────┐
-                          │         git push / PR merge         │
-                          └─────────────────────────────────────┘
-                                          │
-                                          ▼
-                          ┌─────────────────────────────────────┐
-                          │            lint (Flake8)            │
-                          │         Code quality check          │
-                          └─────────────────────────────────────┘
-                                          │
-                    ┌─────────────────────┼─────────────────────┐
-                    │                     │                     │
-                    ▼                     ▼                     ▼
-    ┌─────────────────────────┐  ┌──────────────┐  ┌───────────────────────┐
-    │     etl (MCAP→Parquet)  │  │ colcon-build │  │ build-docker          │
-    │    Generate + transform │  │ (C++ colcon) │  │ (Docker: amd64+arm64) │
-    └──────────┬──────────────┘  └──────────────┘  └───────────┬───────────┘
-               │                                               │
-               ▼                                               ▼
-    ┌─────────────────────────┐                    ┌───────────────────────┐
-    │  analyze (DuckDB SQL)   │                    │ security-scan (Trivy) │
-    │   Queries + assertions  │                    │ Vulnerability Scan    │
-    └─────────────────────────┘                    └───────────┬───────────┘
-                                                               │
-                                                               ▼
-                                                   ┌───────────────────────┐
-                                                   │  integration          │
-                                                   │  Docker Compose test  │
-                                                   └───────────────────────┘
+                               ┌───────────────────────────────────┐
+                               │       Stage 1: Code Quality       │
+                               │          (Flake8 Lint)            │
+                               └─────────────────┬─────────────────┘
+                                                 │
+                  ┌──────────────────────────────┴──────────────────────────────┐
+                  │ TRACK A: Data Engineering & Analytics                       │ TRACK B: Infrastructure & ROS 2 Containers
+                  ▼                                                             ▼
+    ┌───────────────────────────┐                                 ┌───────────────────────────┐
+    │ Stage 2: etl-pipeline     │                                 │ Stage 4: colcon-build     │
+    │ (Synthetic MCAP ➔ Parquet)│                                 │ (C++ colcon + ccache)     │
+    └─────────────┬─────────────┘                                 └───────────────────────────┘
+                  │                                                             │
+                  ▼                                                             ▼
+    ┌───────────────────────────┐                                 ┌───────────────────────────┐
+    │ Stage 3: analyze          │                                 │ Stage 5: build-docker     │
+    │ (DuckDB SQL + Assertions) │                                 │ (Multi-arch amd64+arm64)  │
+    └───────────────────────────┘                                 └─────────────┬─────────────┘
+                                                                                │
+                                                                                ▼
+                                                                  ┌───────────────────────────┐
+                                                                  │ Stage 5.5: security-scan  │
+                                                                  │ (Trivy Container Scan)    │
+                                                                  └─────────────┬─────────────┘
+                                                                                │
+                                                                                ▼
+                                                                  ┌───────────────────────────┐
+                                                                  │ Stage 6: integration      │
+                                                                  │ (Docker Compose 4 Nodes)  │
+                                                                  └───────────────────────────┘
 ```
+
+**Why 2 Parallel Tracks?**
+1. **Track A (Data & Analytics)**: Fast verification of data transformations and SQL reporting using synthetic MCAPs in ~35s. It does not require building heavy C++ binaries or starting full ROS 2 Docker containers.
+2. **Track B (Infrastructure & Simulation)**: Verifies C++ compilation, builds multi-arch Docker containers (`amd64` + `arm64`), executes **Trivy Container Security Scans**, and runs the 4-node live Docker Compose integration test over Fast DDS.
 
 ### Stage Details
 
