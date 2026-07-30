@@ -102,6 +102,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY etl_pipeline/requirements.txt /tmp/requirements.txt
 RUN pip3 install --break-system-packages --no-cache-dir \
     -r /tmp/requirements.txt && \
+    find /usr/local/lib/python3.12/ -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
     rm -rf ~/.cache/pip /tmp/requirements.txt
 
 # Container entrypoint (sources ROS 2 and colcon workspace)
@@ -112,7 +113,8 @@ RUN chmod +x /entrypoint.sh
 # Copy source code AND reinstall to make console_scripts available
 COPY --from=builder-python /ros2_ws/src/drone_telemetry /ros2_ws/src/drone_telemetry
 RUN pip3 install --break-system-packages --no-cache-dir \
-    /ros2_ws/src/drone_telemetry/
+    /ros2_ws/src/drone_telemetry/ && \
+    find /ros2_ws/ -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
 # C++ ROS 2 packages (compiled in builder-cpp stage)
 # Only install directory is needed; build directory excluded
