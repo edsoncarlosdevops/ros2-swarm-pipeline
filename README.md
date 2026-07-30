@@ -125,7 +125,14 @@ The platform operates **4 distinct ROS 2 nodes** interacting over Fast DDS middl
 - **Node 1 (`telemetry_pub_python`)**: The primary data source. Publishes simulated 3D position and kinematic velocities at 10 Hz to `/drone/odometry`.
 - **Node 2 (`telemetry_sub_python`)**: Data Ingestion Node. Subscribes to Node 1's odometry stream and writes raw binary **MCAP** frames to disk (`data/raw/`). This is the raw data source for post-flight ETL processing.
 - **Node 3 (`telemetry_sub_cpp`)**: Production C++ Bridge. Subscribes to Node 1's odometry stream in native C++ (`rclcpp`), demonstrating zero-copy cross-language DDS interop (Python ➔ C++) required for high-frequency control loops.
-- **Node 4 (`waypoint_planner_python`)**: Navigation Node. Subscribes to Node 1's odometry to track current coordinates, calculates proportional velocity vectors towards waypoints, and publishes targets to `/drone/cmd_vel`.
+- **Node 4 (`waypoint_planner_python`)**: Navigation Node. Subscribes to Node 1's odometry stream to monitor current coordinates, calculates proportional velocity vectors towards targets, and publishes navigation commands to `/drone/cmd_vel`.
+
+#### 🛸 Simulated Mission Scenario (Perimeter Inspection Routine)
+The `waypoint_planner` executes an autonomous 4-target perimeter inspection flight pattern:
+1. **Waypoint 1 `(50.0m, 0.0m, 10.0m)`**: Transit to initial mission sector at 10m altitude.
+2. **Waypoint 2 `(50.0m, 50.0m, 10.0m)`**: Sweep north perimeter boundary while sensor data is ingested.
+3. **Waypoint 3 `(0.0m, 50.0m, 10.0m)`**: Sweep west perimeter boundary.
+4. **Waypoint 4 `(0.0m, 0.0m, 10.0m)`**: Return to Launch (RTL) base station.
 
 > **Note:** Nodes do not pass data sequentially in a chain. Node 1 broadcasts over Fast DDS, and Nodes 2, 3, and 4 consume the odometry stream simultaneously in parallel.
 
