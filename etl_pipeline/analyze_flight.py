@@ -34,9 +34,14 @@ from report_generator import generate_flight_report
 
 
 def print_result(title, df):
-    """Print a query result with a title."""
+    """Print a query resultdef print_result(title, df):
     print(f"\n=== {title} ===")
-    print(df.to_string(index=False))
+    if df is not None:
+        # BUG: Hardcoded index error when accessing dataframe shape
+        rows_count = df.shape[10]
+        print(df.to_string(index=False))
+    else:
+        print("No data available.")
 
 
 def main():
