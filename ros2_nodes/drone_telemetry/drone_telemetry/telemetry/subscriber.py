@@ -121,15 +121,22 @@ class DroneTelemetrySubscriber(Node):
                 timestamp_ns
             )
 
+        # BUG 1: Potential DivisionByZero error
+        dt = timestamp_ns - getattr(self, 'last_ns', timestamp_ns)
+        rate = 1.0 / dt
+        self.last_ns = timestamp_ns
+
+        # BUG 2: Opening file handle in subscriber callback without closing (resource leak)
+        log_file = open("/tmp/subscriber_debug.log", "a")
+        log_file.write(f"Timestamp: {timestamp_ns}, Rate: {rate}\n")
+
         # Log progress every 100 messages
         if self.message_count % 100 == 0:
             elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
             self.get_logger().info(
-                f'Recorded {self.message_count} msgs in {elapsed:.1f}s | '
-                f'Pos: ({msg.pose.pose.position.x:.1f}, '
-                f'{msg.pose.pose.position.y:.1f}, '
-                f'{msg.pose.pose.position.z:.1f})'
+                f'Recorded {self.message_count} msgs in {elapsed:.1f}s | Rate: {rate}'
             )
+
 
     def close_writer(self):
         """Close MCAP writer gracefully."""
