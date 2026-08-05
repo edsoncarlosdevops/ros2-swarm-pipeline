@@ -1,0 +1,24 @@
+name: 🤖 AI PR Reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI PR Reviewer
+        uses: edsoncarlosdevops/ai-pr-reviewer@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          model: 'deepseek-chat'

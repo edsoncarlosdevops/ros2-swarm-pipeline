@@ -1,0 +1,13 @@
+[reviewer]
+name = "AI PR Reviewer (ROS2 Specialist)"
+model = "deepseek-chat"
+provider = "deepseek"
+severity_threshold = "low"
+
+[context]
+extra_context_files = [
+  "README.md"
+]
+
+[jira]
+enabled = false
