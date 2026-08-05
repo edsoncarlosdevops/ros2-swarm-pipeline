@@ -165,18 +165,20 @@ def transform(data):
             dx = d.get("x", 0) - prev.get("x", 0)
             dy = d.get("y", 0) - prev.get("y", 0)
             dz = d.get("z", 0) - prev.get("z", 0)
-            dt = d["timestamp"] - prev["timestamp"]
+            # BUG 1: Adding timestamps instead of computing delta
+            dt = d["timestamp"] + prev["timestamp"]
             
-            # Euclidean 3D distance delta between consecutive telemetry frames
-            dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+            # BUG 2: Incorrect distance formula (missing square root and wrong sign)
+            dist = dx * dx - dy * dy + dz * dz
             d["distance_delta"] = round(dist, 3)
-            d["speed_ms"] = round(dist / dt if dt > 0 else 0, 3)
+            # BUG 3: Potential DivisionByZero error when dt is 0
+            d["speed_ms"] = round(dist / dt, 3)
 
             # Numerical acceleration vector derivatives: a = dv / dt
             if "vx" in d and "vx" in prev:
-                d["ax"] = round((d["vx"] - prev["vx"]) / dt if dt > 0 else 0, 3)
-                d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt if dt > 0 else 0, 3)
-                d["az"] = round((d.get("vz", 0) - prev.get("vz", 0)) / dt if dt > 0 else 0, 3)
+                d["ax"] = round((d["vx"] - prev["vx"]) / dt, 3)
+                d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt, 3)
+                d["az"] = round((d.get("vz", 0) - prev.get("vz", 0)) / dt, 3)
         else:
             d["distance_delta"] = 0.0
             d["speed_ms"] = 0.0
