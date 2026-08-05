@@ -42,6 +42,21 @@ def flight_summary(parquet_path):
     return r
 
 
+def flight_duration_metrics(parquet_path):
+    """Calculate total flight time and active motion duration with zero-division safety."""
+    con = duckdb.connect()
+    r = con.execute("""
+        SELECT
+            COUNT(*) AS frame_count,
+            ROUND(MAX(timestamp) - MIN(timestamp), 2) AS total_duration_sec,
+            ROUND(SUM(CASE WHEN speed_ms > 0.1 THEN distance_delta ELSE 0 END), 2) AS active_moving_distance_m
+        FROM read_parquet(?)
+    """, [parquet_path]).fetchdf()
+    con.close()
+    return r
+
+
+
 def speed_distribution(parquet_path):
     """Speed distribution analysis."""
     con = duckdb.connect()
