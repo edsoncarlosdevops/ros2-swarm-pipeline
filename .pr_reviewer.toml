@@ -3,8 +3,6 @@ name = "AI PR Reviewer (ROS2 Specialist)"
 model = "deepseek-chat"
 provider = "deepseek"
 severity_threshold = "low"
-
-# Language of the feedback (e.g., "portuguese", "english", "spanish", "french", "german")
 language = "portuguese"
 
 [context]
