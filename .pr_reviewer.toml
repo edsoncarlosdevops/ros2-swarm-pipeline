@@ -4,6 +4,9 @@ model = "deepseek-chat"
 provider = "deepseek"
 severity_threshold = "low"
 
+# Language of the feedback (e.g., "portuguese", "english", "spanish", "french", "german")
+language = "portuguese"
+
 [context]
 extra_context_files = [
   "README.md"
