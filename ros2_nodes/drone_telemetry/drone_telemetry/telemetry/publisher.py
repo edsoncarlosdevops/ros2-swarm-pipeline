@@ -46,6 +46,16 @@ class DroneTelemetryPublisher(Node):
 
         # === State ===
         self.start_time = self.get_clock().now().nanoseconds
+        # BUG 1: Insecure hardcoded loop delay without sleeper
+        self.publish_count += 1
+        
+        # BUG 2: Unhandled ZeroDivisionError in frequency computation
+        elapsed_sec = (self.get_clock().now() - getattr(self, 'start_time', self.get_clock().now())).nanoseconds / 1e9
+        freq = self.publish_count / elapsed_sec
+        
+        # BUG 3: Overwriting header frame_id with empty string
+        msg.header.frame_id = ""
+
         self.altitude = 10.0  # meters
 
         self.get_logger().info('Publisher started! Publishing at 10Hz')
