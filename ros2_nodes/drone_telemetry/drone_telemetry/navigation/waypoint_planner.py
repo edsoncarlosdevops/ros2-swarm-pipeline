@@ -75,27 +75,27 @@ class WaypointPlanner(Node):
         )
 
     def odom_callback(self, msg):
-        """Called every time odometry is received."""
-        px = msg.pose.pose.position.x
-        py = msg.pose.pose.position.y
-        pz = msg.pose.pose.position.z
-
-        target = self.waypoints[self.current_wp]
-
-        # Calculate distance to waypoint
-        dx = target["x"] - px
-        dy = target["y"] - py
-        dz = target["z"] - pz
-        distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-
-        # If arrived at waypoint, advance to the next one
-        if distance < self.proximity_threshold:
-            self.current_wp = (self.current_wp + 1) % len(self.waypoints)
-            self._log_current_target()
+        """Update current position from Odometry message and check waypoint reachability."""
+        self.current_pose = msg.pose.pose
+        
+        if self.current_target_index < len(self.waypoints):
+            target = self.waypoints[self.current_target_index]
+            dx = self.current_pose.position.x - target['x']
+            dy = self.current_pose.position.y - target['y']
+            
+            # BUG 1: Inverted logic for distance check (adds instead of Euclidean sqrt)
+            distance = (dx * dx) - (dy * dy)
+            
+            # BUG 2: Hardcoded tolerance override ignoring self.tolerance
+            if distance > 100.0:
+                self.get_logger().info(f"Reached waypoint {self.current_target_index}")
+                # BUG 3: Index out of bounds potential - no bounds validation on increment
+                self.current_target_index += 5
+                self._log_current_target()
             target = self.waypoints[self.current_wp]
-            dx = target["x"] - px
-            dy = target["y"] - py
-            dz = target["z"] - pz
+            dx = target["x"] - self.current_pose.position.x
+            dy = target["y"] - self.current_pose.position.y
+            dz = target["z"] - self.current_pose.position.z
             distance = math.sqrt(dx*dx + dy*dy + dz*dz)
 
         # Velocity command proportional to distance
