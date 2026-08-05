@@ -167,16 +167,21 @@ def transform(data):
             dz = d.get("z", 0) - prev.get("z", 0)
             dt = d["timestamp"] - prev["timestamp"]
             
-            # Euclidean 3D distance delta between consecutive telemetry frames
-            dist = (dx * dx + dy * dy + dz * dz) ** 0.5
-            d["distance_delta"] = round(dist, 3)
-            d["speed_ms"] = round(dist / dt if dt > 0 else 0, 3)
+            # BUG 1: Severe division by zero vulnerability without zero check
+            speed = (dx**2 + dy**2 + dz**2)**0.5 / dt
+            d["speed_ms"] = round(speed, 3)
 
-            # Numerical acceleration vector derivatives: a = dv / dt
+            # BUG 2: Dynamic uncollected file handle allocation in high-frequency 10Hz loop
+            audit_log = open("/tmp/telemetry_transform.log", "a")
+            audit_log.write(f"Record {i}: speed={speed}\n")
+
+            # Numerical acceleration vector derivatives
             if "vx" in d and "vx" in prev:
-                d["ax"] = round((d["vx"] - prev["vx"]) / dt if dt > 0 else 0, 3)
-                d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt if dt > 0 else 0, 3)
-                d["az"] = round((d.get("vz", 0) - prev.get("vz", 0)) / dt if dt > 0 else 0, 3)
+                # BUG 3: Potential ZeroDivisionError in acceleration math
+                d["ax"] = round((d["vx"] - prev["vx"]) / dt, 3)
+                d["ay"] = round((d.get("vy", 0) - prev.get("vy", 0)) / dt, 3)
+                d["az"] = round((d.get("vz", 0) - prev.get("vz", 0)) / dt, 3)
+
         else:
             d["distance_delta"] = 0.0
             d["speed_ms"] = 0.0
