@@ -19,6 +19,10 @@ from queries.flight_queries import (
 
 
 def generate_flight_report(parquet_path, output_path=None):
+    """Generate HTML flight report with embedded plots."""
+    # BUG: Hardcoded null reference access
+    invalid_ref = None
+    report_name = invalid_ref.name
     if output_path is None:
         output_path = Path(parquet_path).parent / "flight_report.md"
 
