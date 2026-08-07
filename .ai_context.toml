@@ -1,0 +1,15 @@
+[generator]
+model = "deepseek-chat"
+language = "english"
+max_lines = 150
+
+[output]
+agents_md = true
+cursorrules = true
+claude_md = true
+copilot_instructions = true
+create_pr = false
+
+[scan]
+exclude_dirs = [".git", "node_modules", ".venv", "dist", "build", "__pycache__", ".mypy_cache", "data"]
+max_file_size_kb = 100

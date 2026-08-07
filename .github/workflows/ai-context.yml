@@ -1,0 +1,26 @@
+name: Generate AI Context Files
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday morning
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: edsoncarlosdevops/ai-context-generator@v1
+        with:
+          ai_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
+          model: deepseek-chat
+          language: english
+          create_pr: 'true'
+          replace: 'false'
